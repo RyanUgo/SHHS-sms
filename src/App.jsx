@@ -4,49 +4,27 @@ import React, { useState, useEffect, useCallback } from "react";
 const SUPABASE_URL = "https://stolatcjrhkriunpvoky.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN0b2xhdGNqcmhrcml1bnB2b2t5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0MTQ5NTIsImV4cCI6MjA5NDk5MDk1Mn0.GyMH-MA_wNnKXEc0uLOqXYseoVuteUAjdwBf5pJnS48";
 
-async function sb(path, options = {}) {
-  const { headers: extraHeaders, prefer, ...restOptions } = options;
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...restOptions,
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      "Prefer": prefer || "return=representation",
-      ...extraHeaders,
-    },
-  });
-    },
-    ...options,
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err);
-  }
+async function sbFetch(path, method = "GET", body = null, prefer = "return=representation") {
+  const url = `${SUPABASE_URL}/rest/v1/${path}${path.includes("?") ? "&" : "?"}apikey=${SUPABASE_ANON_KEY}`;
+  const headers = {
+    "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+    "Content-Type": "application/json",
+    "Prefer": prefer,
+  };
+  const options = { method, headers };
+  if (body) options.body = JSON.stringify(body);
+  const res = await fetch(url, options);
+  if (!res.ok) { const err = await res.text(); throw new Error(err); }
   const text = await res.text();
   return text ? JSON.parse(text) : [];
 }
 
 const db = {
-  select: (table, query = "") => sb(`${table}?${query}`),
-  insert: (table, data) => sb(table, { method: "POST", body: JSON.stringify(data) }),
-  update: (table, match, data) => sb(`${table}?${match}`, { method: "PATCH", body: JSON.stringify(data) }),
-  upsert: async (table, data) => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=representation",
-      },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) { const err = await res.text(); throw new Error(err); }
-    const text = await res.text();
-    return text ? JSON.parse(text) : [];
-  },
-  delete: (table, match) => sb(`${table}?${match}`, { method: "DELETE" }),
+  select: (table, query = "") => sbFetch(query ? `${table}?${query}` : table),
+  insert: (table, data) => sbFetch(table, "POST", data),
+  update: (table, match, data) => sbFetch(`${table}?${match}`, "PATCH", data),
+  upsert: (table, data) => sbFetch(table, "POST", data, "resolution=merge-duplicates,return=representation"),
+  delete: (table, match) => sbFetch(`${table}?${match}`, "DELETE"),
 };
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
