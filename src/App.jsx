@@ -31,7 +31,21 @@ const db = {
   select: (table, query = "") => sb(`${table}?${query}`),
   insert: (table, data) => sb(table, { method: "POST", body: JSON.stringify(data) }),
   update: (table, match, data) => sb(`${table}?${match}`, { method: "PATCH", body: JSON.stringify(data) }),
-  upsert: (table, data) => sb(table, { method: "POST", body: JSON.stringify(data), prefer: "resolution=merge-duplicates,return=representation", headers: { Prefer: "resolution=merge-duplicates,return=representation" } }),
+  upsert: async (table, data) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=representation",
+      },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) { const err = await res.text(); throw new Error(err); }
+    const text = await res.text();
+    return text ? JSON.parse(text) : [];
+  },
   delete: (table, match) => sb(`${table}?${match}`, { method: "DELETE" }),
 };
 
