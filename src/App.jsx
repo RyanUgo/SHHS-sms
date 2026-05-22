@@ -5,13 +5,17 @@ const SUPABASE_URL = "https://stolatcjrhkriunpvoky.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN0b2xhdGNqcmhrcml1bnB2b2t5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0MTQ5NTIsImV4cCI6MjA5NDk5MDk1Mn0.GyMH-MA_wNnKXEc0uLOqXYseoVuteUAjdwBf5pJnS48";
 
 async function sb(path, options = {}) {
+  const { headers: extraHeaders, prefer, ...restOptions } = options;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...restOptions,
     headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json",
-      Prefer: options.prefer || "return=representation",
-      ...options.headers,
+      "Prefer": prefer || "return=representation",
+      ...extraHeaders,
+    },
+  });
     },
     ...options,
   });
