@@ -518,7 +518,7 @@ function ReportsPage({data}){
       if(gpaNum>=2.5){promotionStatus=(avgM!==null&&avgM<40&&avgE!==null&&avgE<40)?"TRIAL":"PROMOTED";}
       else{promotionStatus="NOT_PROMOTED";}
     }
-    setReport({student,term,scores:withPos,gpa,classGPA,comment,formTeacher,att,promotionStatus,codingScore,prevTermScores,reportType});
+    setReport({student,term,scores:withPos,gpa,classGPA,comment,formTeacher,att,promotionStatus,codingScore,prevTermScores,reportType,staff});
   };
   if(report) return <ReportCard {...report} onBack={()=>setReport(null)}/>;
   return(
@@ -552,18 +552,26 @@ function ReportsPage({data}){
   );
 }
 
-function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,promotionStatus,codingScore,prevTermScores,reportType,onBack}){
+function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,promotionStatus,codingScore,prevTermScores,reportType,onBack,staff}){
   const isCAT1=reportType==="cat1"; const isCAT2=reportType==="cat2"; const isFull=reportType==="exam";
   const isTerm3=term?.term===3;
   const gradeKey=[{g:"A+",r:"91-100",p:"5.0",d:"Distinction"},{g:"A",r:"80-90",p:"5.0",d:"Excellent"},{g:"B",r:"70-79",p:"4.0",d:"Very Good"},{g:"C",r:"60-69",p:"3.0",d:"Good"},{g:"D",r:"50-59",p:"2.0",d:"Average"},{g:"E",r:"40-49",p:"1.0",d:"Fair"},{g:"F",r:"0-39",p:"0.0",d:"Poor"}];
   const getSub=(sub,ts)=>ts?.find(s=>s.subject===sub)?.total||"—";
+  const getSubjectTeacher=(subject)=>{
+    const teacher=staff?.find(s=>s.role==="teacher"&&s.subjects?.includes(subject));
+    if(!teacher) return "—";
+    const parts=teacher.name.replace(/^(Mr\.|Mrs\.|Ms\.|Dr\.|Monsieur)\s*/i,"").split(" ");
+    return parts[parts.length-1]||teacher.name;
+  };
+  const th=(label,extra={})=><th style={{padding:"8px 8px",fontSize:10,color:"#e8c96e",fontWeight:"bold",textAlign:"center",whiteSpace:"nowrap",...extra}}>{label}</th>;
+  const td=(val,extra={})=><td style={{padding:"7px 8px",fontSize:12,textAlign:"center",...extra}}>{val}</td>;
   return(
     <div>
       <div style={{display:"flex",gap:10,marginBottom:14}}>
         <button onClick={onBack} style={{padding:"8px 14px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",cursor:"pointer",fontSize:13}}>← Back</button>
         <button onClick={()=>window.print()} style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#3b82f6",cursor:"pointer",color:"white",fontSize:13}}>🖨️ Print</button>
       </div>
-      <div style={{background:"white",borderRadius:12,border:"2px solid #c9a84c",maxWidth:960,margin:"0 auto",overflow:"hidden"}}>
+      <div style={{background:"white",borderRadius:12,border:"2px solid #c9a84c",maxWidth:1020,margin:"0 auto",overflow:"hidden"}}>
         <div style={{background:"linear-gradient(135deg,#0f1923,#1a2d40)",padding:"18px 26px",textAlign:"center",color:"white"}}>
           <div style={{fontSize:26,marginBottom:6}}>🎓</div>
           <h2 style={{color:"#e8c96e",margin:"0 0 2px",fontSize:19}}>{SCHOOL_NAME}</h2>
@@ -577,38 +585,59 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead><tr style={{background:"#1a2d40"}}>
-              <th style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#e8c96e",fontWeight:"bold",minWidth:170}}>Subject</th>
-              {isCAT1&&<><th style={{padding:"8px 10px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>CAT 1 /15</th><th style={{padding:"8px 10px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Grade</th><th style={{padding:"8px 10px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Class Avg</th></>}
-              {isCAT2&&<><th style={{padding:"8px 10px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>CAT 2 /15</th><th style={{padding:"8px 10px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Grade</th><th style={{padding:"8px 10px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Class Avg</th></>}
+              {th("SUBJECT",{textAlign:"left",minWidth:170,fontSize:11})}
+              {(isCAT1||isCAT2)&&<>
+                {th(isCAT1?"CAT 1 /15":"CAT 2 /15")}
+                {th("BA /10")}
+                {th("GP")}
+                {th("GRADE")}
+                {th("SUBJECT POSITION")}
+                {th("SUBJECT TEACHER")}
+                {th("REMARK")}
+              </>}
               {isFull&&<>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>CAT1</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>CAT2</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Exam</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>BA</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Total</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Grade</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>Pos</th>
-                <th style={{padding:"8px 8px",fontSize:11,color:"#e8c96e",textAlign:"center"}}>CAvg</th>
-                {isTerm3&&<><th style={{padding:"8px 8px",fontSize:11,color:"#f59e0b",textAlign:"center"}}>T1</th><th style={{padding:"8px 8px",fontSize:11,color:"#f59e0b",textAlign:"center"}}>T2</th></>}
+                {th("CAT 1")}
+                {th("CAT 2")}
+                {th("EXAM")}
+                {th("BA")}
+                {th("TOTAL")}
+                {th("GRADE")}
+                {th("POS")}
+                {th("GP")}
+                {isTerm3&&<>{th("T1",{color:"#f59e0b"})}{th("T2",{color:"#f59e0b"})}</>}
+                {th("SUBJECT TEACHER")}
+                {th("REMARK")}
               </>}
             </tr></thead>
             <tbody>{scores.map((s,i)=>{
               const c1=Number(s.cat1)||0; const c2=Number(s.cat2)||0;
-              const dv=isCAT1?c1:isCAT2?c2:s.total; const di=getGradeInfo(dv);
+              const catScore=isCAT1?c1:c2;
+              const catInfo=getGradeInfo(catScore);
+              const catGP=catInfo.gpa;
+              const subTeacher=getSubjectTeacher(s.subject);
               return(<tr key={s.subject} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"white"}}>
                 <td style={{padding:"7px 10px",fontSize:12,fontWeight:"500"}}>{s.subject}</td>
-                {isCAT1&&<><td style={{padding:"7px 10px",fontSize:13,fontWeight:"bold",textAlign:"center",color:gradeColor(di.grade)}}>{c1}</td><td style={{padding:"7px 10px",textAlign:"center"}}><GradeBadge grade={di.grade} small/></td><td style={{padding:"7px 10px",fontSize:12,textAlign:"center",color:"#64748b"}}>{s.classAvg}</td></>}
-                {isCAT2&&<><td style={{padding:"7px 10px",fontSize:13,fontWeight:"bold",textAlign:"center",color:gradeColor(di.grade)}}>{c2}</td><td style={{padding:"7px 10px",textAlign:"center"}}><GradeBadge grade={di.grade} small/></td><td style={{padding:"7px 10px",fontSize:12,textAlign:"center",color:"#64748b"}}>{s.classAvg}</td></>}
+                {(isCAT1||isCAT2)&&<>
+                  {td(<span style={{fontWeight:"bold",color:gradeColor(catInfo.grade)}}>{catScore}</span>)}
+                  {td(s.ba||0)}
+                  {td(catGP)}
+                  {td(<GradeBadge grade={catInfo.grade} small/>)}
+                  {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
+                  {td(subTeacher,{color:"#374151",fontSize:11})}
+                  {td(catInfo.remark,{color:"#64748b",fontSize:11})}
+                </>}
                 {isFull&&<>
-                  <td style={{padding:"7px 8px",fontSize:12,textAlign:"center"}}>{s.cat1||0}</td>
-                  <td style={{padding:"7px 8px",fontSize:12,textAlign:"center"}}>{s.cat2||0}</td>
-                  <td style={{padding:"7px 8px",fontSize:12,textAlign:"center"}}>{s.exam||0}</td>
-                  <td style={{padding:"7px 8px",fontSize:12,textAlign:"center"}}>{s.ba||0}</td>
-                  <td style={{padding:"7px 8px",fontSize:13,fontWeight:"bold",textAlign:"center",color:gradeColor(s.grade)}}>{s.total}</td>
-                  <td style={{padding:"7px 8px",textAlign:"center"}}><GradeBadge grade={s.grade} small/></td>
-                  <td style={{padding:"7px 8px",fontSize:12,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
-                  <td style={{padding:"7px 8px",fontSize:12,textAlign:"center",color:"#64748b"}}>{s.classAvg}</td>
-                  {isTerm3&&<><td style={{padding:"7px 8px",fontSize:12,textAlign:"center",color:"#d97706",fontWeight:"500"}}>{getSub(s.subject,prevTermScores?.term1)}</td><td style={{padding:"7px 8px",fontSize:12,textAlign:"center",color:"#d97706",fontWeight:"500"}}>{getSub(s.subject,prevTermScores?.term2)}</td></>}
+                  {td(s.cat1||0)}
+                  {td(s.cat2||0)}
+                  {td(s.exam||0)}
+                  {td(s.ba||0)}
+                  {td(<span style={{fontWeight:"bold",color:gradeColor(s.grade)}}>{s.total}</span>)}
+                  {td(<GradeBadge grade={s.grade} small/>)}
+                  {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
+                  {td(getGradeInfo(s.total).gpa)}
+                  {isTerm3&&<>{td(getSub(s.subject,prevTermScores?.term1),{color:"#d97706",fontWeight:"500"})}{td(getSub(s.subject,prevTermScores?.term2),{color:"#d97706",fontWeight:"500"})}</>}
+                  {td(subTeacher,{color:"#374151",fontSize:11})}
+                  {td(s.remark,{color:"#64748b",fontSize:11})}
                 </>}
               </tr>);
             })}</tbody>
