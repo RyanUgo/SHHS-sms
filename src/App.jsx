@@ -1095,73 +1095,110 @@ function SubjectAssignmentPage({data,toast,reload}){
   const teachers=staff.filter(s=>s.role==="teacher");
   const [selectedClass,setSelectedClass]=useState("JSS1");
   const [assignments,setAssignments]=useState({});
+  const [subjectNames,setSubjectNames]=useState({});
   const [saving,setSaving]=useState(false);
-  const subjects=CLASS_SUBJECTS[selectedClass]||[];
+  const [editingSubject,setEditingSubject]=useState(null);
+  const [editValue,setEditValue]=useState("");
+  const [showAddSubject,setShowAddSubject]=useState(false);
+  const [newSubject,setNewSubject]=useState("");
 
-  // Load current assignments from staff data
+  // Local editable subject list per class (stored in localStorage so it persists)
+  const storageKey="shhs_custom_subjects_"+selectedClass;
+  const getSubjects=()=>{
+    try{const s=localStorage.getItem(storageKey);return s?JSON.parse(s):(CLASS_SUBJECTS[selectedClass]||[]);}
+    catch{return CLASS_SUBJECTS[selectedClass]||[];}
+  };
+  const saveSubjects=(list)=>{
+    try{localStorage.setItem(storageKey,JSON.stringify(list));}catch{}
+  };
+  const [localSubjects,setLocalSubjects]=useState(getSubjects);
+
   useEffect(()=>{
+    const subs=getSubjects();
+    setLocalSubjects(subs);
     const init={};
-    subjects.forEach(sub=>{
-      const teacher=teachers.find(t=>t.subjects?.includes(sub)&&t.classes?.includes(selectedClass));
+    subs.forEach(sub=>{
+      const teacher=teachers.find(t=>t.subjects?.includes(sub));
       init[sub]=teacher?.id||"";
     });
     setAssignments(init);
   },[selectedClass,staff]);
 
-  const handleChange=(subject,teacherId)=>{
+  const handleAssignChange=(subject,teacherId)=>{
     setAssignments(prev=>({...prev,[subject]:teacherId}));
+  };
+
+  // Rename a subject
+  const handleRenameStart=(sub)=>{setEditingSubject(sub);setEditValue(sub);};
+  const handleRenameConfirm=()=>{
+    if(!editValue.trim()||editValue===editingSubject){setEditingSubject(null);return;}
+    const updated=localSubjects.map(s=>s===editingSubject?editValue.trim():s);
+    setLocalSubjects(updated);saveSubjects(updated);
+    // Update assignments map key
+    setAssignments(prev=>{
+      const next={...prev};
+      next[editValue.trim()]=prev[editingSubject]||"";
+      delete next[editingSubject];
+      return next;
+    });
+    setEditingSubject(null);
+    toast("Subject renamed!");
+  };
+
+  // Add a new subject
+  const handleAddSubject=()=>{
+    if(!newSubject.trim()) return toast("Enter a subject name.","error");
+    if(localSubjects.includes(newSubject.trim())) return toast("Subject already exists.","error");
+    const updated=[...localSubjects,newSubject.trim()];
+    setLocalSubjects(updated);saveSubjects(updated);
+    setAssignments(prev=>({...prev,[newSubject.trim()]:""}));
+    setNewSubject("");setShowAddSubject(false);
+    toast("Subject added!");
+  };
+
+  // Remove a subject
+  const handleRemoveSubject=(sub)=>{
+    if(!window.confirm("Remove subject: "+sub+"?")) return;
+    const updated=localSubjects.filter(s=>s!==sub);
+    setLocalSubjects(updated);saveSubjects(updated);
+    setAssignments(prev=>{const next={...prev};delete next[sub];return next;});
+    toast("Subject removed.");
   };
 
   const handleSave=async()=>{
     setSaving(true);
     try{
-      // Build updated subjects list per teacher
       const teacherSubjectMap={};
       teachers.forEach(t=>{teacherSubjectMap[t.id]=[...new Set(t.subjects||[])];});
-
-      // Remove this class's subjects from all teachers first
-      subjects.forEach(sub=>{
-        teachers.forEach(t=>{
-          teacherSubjectMap[t.id]=teacherSubjectMap[t.id].filter(s=>s!==sub);
-        });
+      // Remove this class's subjects from all teachers
+      localSubjects.forEach(sub=>{
+        teachers.forEach(t=>{teacherSubjectMap[t.id]=teacherSubjectMap[t.id].filter(s=>s!==sub);});
       });
-
-      // Assign new subjects
-      subjects.forEach(sub=>{
+      // Assign new
+      localSubjects.forEach(sub=>{
         const tid=assignments[sub];
-        if(tid&&teacherSubjectMap[tid]){
-          if(!teacherSubjectMap[tid].includes(sub)) teacherSubjectMap[tid].push(sub);
-        }
+        if(tid&&teacherSubjectMap[tid]&&!teacherSubjectMap[tid].includes(sub)) teacherSubjectMap[tid].push(sub);
       });
-
-      // Build updated classes per teacher
+      // Update classes list too
       const teacherClassMap={};
       teachers.forEach(t=>{teacherClassMap[t.id]=[...new Set(t.classes||[])];});
-
-      // Save each teacher
       for(const t of teachers){
-        await db.update("staff","id=eq."+t.id,{
-          subjects:teacherSubjectMap[t.id],
-          classes:[...new Set([...teacherClassMap[t.id]])],
-        });
+        await db.update("staff","id=eq."+t.id,{subjects:teacherSubjectMap[t.id],classes:teacherClassMap[t.id]});
       }
       await reload();
-      toast("Subject assignments saved!");
+      toast("Assignments saved!");
     }catch(e){toast("Error: "+e.message,"error");}
     setSaving(false);
   };
 
-  // Get all subjects assigned to a teacher across all classes
-  const getTeacherLoad=(teacherId)=>{
-    return teachers.find(t=>t.id===teacherId)?.subjects?.length||0;
-  };
+  const getTeacherLoad=(teacherId)=>Object.values(assignments).filter(id=>id===teacherId).length;
 
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
         <div>
           <h3 style={{margin:"0 0 4px",color:"#1e293b"}}>Subject & Teacher Assignment</h3>
-          <p style={{margin:0,color:"#64748b",fontSize:13}}>Assign subject teachers per class. Changes reflect on report cards immediately.</p>
+          <p style={{margin:0,color:"#64748b",fontSize:13}}>Assign teachers, rename or add subjects per class. Changes reflect on report cards immediately.</p>
         </div>
         <GoldButton onClick={handleSave} disabled={saving}>{saving?"Saving...":"Save Assignments"}</GoldButton>
       </div>
@@ -1169,72 +1206,90 @@ function SubjectAssignmentPage({data,toast,reload}){
       {/* Class tabs */}
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
         {ALL_CLASSES.map(c=>(
-          <button key={c} onClick={()=>setSelectedClass(c)} style={{padding:"8px 16px",borderRadius:20,border:"none",cursor:"pointer",background:selectedClass===c?"linear-gradient(135deg,#c9a84c,#e8c96e)":selectedClass===c?"#1e293b":"white",color:selectedClass===c?"#1a2d40":"#64748b",fontWeight:selectedClass===c?"bold":"normal",fontSize:13,border:selectedClass===c?"none":"1px solid #e2e8f0"}}>
+          <button key={c} onClick={()=>setSelectedClass(c)} style={{padding:"8px 16px",borderRadius:20,cursor:"pointer",fontWeight:selectedClass===c?"bold":"normal",fontSize:13,background:selectedClass===c?"linear-gradient(135deg,#c9a84c,#e8c96e)":"white",color:selectedClass===c?"#1a2d40":"#64748b",border:selectedClass===c?"none":"1px solid #e2e8f0"}}>
             {c}
           </button>
         ))}
       </div>
 
-      {/* Teacher legend */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
+      {/* Teacher summary cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10,marginBottom:16}}>
         {teachers.map(t=>(
           <div key={t.id} style={{background:"white",borderRadius:10,padding:"10px 14px",border:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{fontSize:13,fontWeight:"600",color:"#1e293b"}}>{t.name}</div>
-              <div style={{fontSize:11,color:"#64748b"}}>{t.username}</div>
-            </div>
-            <div style={{background:"#f0f9ff",color:"#0369a1",borderRadius:20,padding:"2px 10px",fontSize:12,fontWeight:"bold"}}>
-              {Object.values(assignments).filter(id=>id===t.id).length} assigned
-            </div>
+            <div><div style={{fontSize:13,fontWeight:"600",color:"#1e293b"}}>{t.name}</div><div style={{fontSize:11,color:"#64748b"}}>{t.username}</div></div>
+            <div style={{background:"#f0f9ff",color:"#0369a1",borderRadius:20,padding:"2px 10px",fontSize:12,fontWeight:"bold"}}>{getTeacherLoad(t.id)} here</div>
           </div>
         ))}
       </div>
 
-      {/* Subject assignment table */}
+      {/* Subject table */}
       <div style={{background:"white",borderRadius:12,border:"1px solid #e2e8f0",overflow:"hidden"}}>
         <div style={{padding:"12px 16px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <h4 style={{margin:0,color:"#1e293b"}}>{selectedClass} — {subjects.length} Subjects</h4>
-          <span style={{fontSize:13,color:"#64748b"}}>{Object.values(assignments).filter(Boolean).length} of {subjects.length} assigned</span>
+          <h4 style={{margin:0}}>{selectedClass} — {localSubjects.length} Subjects</h4>
+          <button onClick={()=>setShowAddSubject(!showAddSubject)} style={{background:"#6366f1",color:"white",border:"none",padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:"bold"}}>+ Add Subject</button>
         </div>
+
+        {/* Add subject row */}
+        {showAddSubject&&(
+          <div style={{padding:"12px 16px",background:"#f0f4ff",borderBottom:"1px solid #e2e8f0",display:"flex",gap:10,alignItems:"center"}}>
+            <input value={newSubject} onChange={e=>setNewSubject(e.target.value)} placeholder="New subject name..." onKeyDown={e=>e.key==="Enter"&&handleAddSubject()} style={{flex:1,padding:"8px 12px",border:"1px solid #6366f1",borderRadius:8,fontSize:14,outline:"none"}} autoFocus/>
+            <button onClick={handleAddSubject} style={{background:"#6366f1",color:"white",border:"none",padding:"8px 16px",borderRadius:8,cursor:"pointer",fontSize:13}}>Add</button>
+            <button onClick={()=>{setShowAddSubject(false);setNewSubject("");}} style={{background:"white",color:"#64748b",border:"1px solid #e2e8f0",padding:"8px 14px",borderRadius:8,cursor:"pointer",fontSize:13}}>Cancel</button>
+          </div>
+        )}
+
         <table style={{width:"100%",borderCollapse:"collapse"}}>
           <thead>
             <tr style={{background:"#f8fafc"}}>
-              <th style={{...thStyle,width:40}}>#</th>
-              <th style={thStyle}>Subject</th>
+              <th style={{...thStyle,width:36}}>#</th>
+              <th style={thStyle}>Subject Name</th>
               <th style={thStyle}>Assigned Teacher</th>
               <th style={thStyle}>Teacher Load</th>
+              <th style={thStyle}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {subjects.map((sub,i)=>{
+            {localSubjects.map((sub,i)=>{
               const assignedId=assignments[sub]||"";
-              const assignedTeacher=teachers.find(t=>t.id===assignedId);
               const load=assignedId?getTeacherLoad(assignedId):0;
+              const isEditing=editingSubject===sub;
               return(
                 <tr key={sub} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
                   <td style={{...tdStyle,color:"#94a3b8",fontWeight:"bold",fontSize:12}}>{i+1}</td>
-                  <td style={{...tdStyle,fontWeight:"500"}}>{sub}</td>
                   <td style={tdStyle}>
-                    <select
-                      value={assignedId}
-                      onChange={e=>handleChange(sub,e.target.value)}
-                      style={{...selectStyle,width:"100%",maxWidth:280,border:assignedId?"1px solid #c9a84c":"1px solid #f87171",background:assignedId?"white":"#fff5f5"}}
-                    >
+                    {isEditing?(
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <input value={editValue} onChange={e=>setEditValue(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")handleRenameConfirm();if(e.key==="Escape")setEditingSubject(null);}}
+                          style={{flex:1,padding:"6px 10px",border:"2px solid #c9a84c",borderRadius:8,fontSize:13,outline:"none"}} autoFocus/>
+                        <button onClick={handleRenameConfirm} style={{background:"#10b981",color:"white",border:"none",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:12}}>✓ Save</button>
+                        <button onClick={()=>setEditingSubject(null)} style={{background:"#f1f5f9",color:"#64748b",border:"none",padding:"5px 10px",borderRadius:6,cursor:"pointer",fontSize:12}}>✕</button>
+                      </div>
+                    ):(
+                      <span style={{fontWeight:"500",color:"#1e293b"}}>{sub}</span>
+                    )}
+                  </td>
+                  <td style={tdStyle}>
+                    <select value={assignedId} onChange={e=>handleAssignChange(sub,e.target.value)}
+                      style={{...selectStyle,width:"100%",maxWidth:260,border:assignedId?"1px solid #c9a84c":"1px solid #f87171",background:assignedId?"white":"#fff5f5"}}>
                       <option value="">— Unassigned —</option>
-                      {teachers.map(t=>(
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
+                      {teachers.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </td>
                   <td style={tdStyle}>
                     {assignedId?(
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:80,height:6,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
-                          <div style={{width:Math.min((load/20)*100,100)+"%",height:"100%",borderRadius:3,background:load>15?"#ef4444":load>10?"#f59e0b":"#10b981"}}/>
+                        <div style={{width:70,height:6,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
+                          <div style={{width:Math.min((load/10)*100,100)+"%",height:"100%",borderRadius:3,background:load>8?"#ef4444":load>5?"#f59e0b":"#10b981"}}/>
                         </div>
-                        <span style={{fontSize:12,color:"#64748b"}}>{load} subjects total</span>
+                        <span style={{fontSize:12,color:"#64748b"}}>{load} in class</span>
                       </div>
-                    ):<span style={{fontSize:12,color:"#f87171"}}>Not assigned</span>}
+                    ):<span style={{fontSize:12,color:"#f87171"}}>Unassigned</span>}
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>handleRenameStart(sub)} title="Rename subject" style={{background:"#f0f9ff",border:"none",padding:"5px 9px",borderRadius:6,cursor:"pointer",fontSize:13}}>✏️</button>
+                      <button onClick={()=>handleRemoveSubject(sub)} title="Remove subject" style={{background:"#fee2e2",border:"none",padding:"5px 9px",borderRadius:6,cursor:"pointer",fontSize:13}}>🗑️</button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -1243,11 +1298,11 @@ function SubjectAssignmentPage({data,toast,reload}){
         </table>
       </div>
 
-      {/* Summary of unassigned */}
-      {subjects.filter(s=>!assignments[s]).length>0&&(
+      {/* Unassigned warning */}
+      {localSubjects.filter(s=>!assignments[s]).length>0&&(
         <div style={{background:"#fff5f5",border:"1px solid #fecaca",borderRadius:10,padding:"12px 16px",marginTop:12}}>
-          <span style={{fontSize:13,color:"#dc2626",fontWeight:"bold"}}>⚠️ {subjects.filter(s=>!assignments[s]).length} subject(s) still unassigned:</span>
-          <span style={{fontSize:13,color:"#dc2626",marginLeft:8}}>{subjects.filter(s=>!assignments[s]).join(", ")}</span>
+          <span style={{fontSize:13,color:"#dc2626",fontWeight:"bold"}}>⚠️ {localSubjects.filter(s=>!assignments[s]).length} subject(s) unassigned: </span>
+          <span style={{fontSize:13,color:"#dc2626"}}>{localSubjects.filter(s=>!assignments[s]).join(", ")}</span>
         </div>
       )}
     </div>
