@@ -397,12 +397,21 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
   const [codingScore,setCodingScore]=useState(0); const [saving,setSaving]=useState(false); const [saved,setSaved]=useState(false);
   const allowedClasses=isAdmin?ALL_CLASSES:(user.classes||[]);
   const classStudents=students.filter(s=>s.class===selectedClass);
-  const subjects=CLASS_SUBJECTS[selectedClass]||[];
+
+  // Always read from localStorage so Subject Assignment changes are reflected instantly
+  const getCustomSubjects=(cls)=>{
+    if(!cls) return [];
+    try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}
+    catch{return CLASS_SUBJECTS[cls]||[];}
+  };
+  const subjects=getCustomSubjects(selectedClass);
+
   useEffect(()=>{
     if(selectedStudent&&selectedTerm&&selectedClass){
+      const currentSubjects=getCustomSubjects(selectedClass);
       const existing=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===selectedStudent);
       const init={};
-      subjects.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba}:{cat1:"",cat2:"",exam:"",ba:""};});
+      currentSubjects.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba}:{cat1:"",cat2:"",exam:"",ba:""};});
       setLocalScores(init);
       const cs=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===selectedStudent);
       setCodingScore(cs?.score||0);setSaved(false);
@@ -487,6 +496,11 @@ function ReportsPage({data}){
   const [selectedClass,setSelectedClass]=useState(""); const [selectedStudent,setSelectedStudent]=useState("");
   const [reportType,setReportType]=useState("exam"); const [report,setReport]=useState(null);
   const classStudents=students.filter(s=>s.class===selectedClass);
+  const getCustomSubjects=(cls)=>{
+    try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}
+    catch{return CLASS_SUBJECTS[cls]||[];}
+  };
+
   const generate=()=>{
     const student=students.find(s=>s.id===selectedStudent); if(!student) return;
     const term=terms.find(t=>t.id===selectedTerm);
@@ -792,7 +806,8 @@ function PerformancePage({user,data,isAdmin}){
   const maxBarWidth=420;
 
   // Subject average chart data
-  const subjectAverages=(CLASS_SUBJECTS[selectedClass]||[]).map(sub=>{
+  const getCustomSubjectsPerf=(cls)=>{try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}catch{return CLASS_SUBJECTS[cls]||[];}};
+  const subjectAverages=(getCustomSubjectsPerf(selectedClass)).map(sub=>{
     const subScores=classStudents.map(s=>scores.find(r=>r.term_id===selectedTerm&&r.student_id===s.id&&r.subject===sub)?.total||null).filter(v=>v!==null);
     const avg=subScores.length?(subScores.reduce((a,b)=>a+b,0)/subScores.length):0;
     return{subject:sub,avg:Math.round(avg*10)/10};
@@ -1097,6 +1112,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
   const myAssignments=assignments.filter(a=>a.class===student.class);
   const codingScore=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===student.id);
+  const getStudentSubjects=(cls)=>{try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}catch{return CLASS_SUBJECTS[cls]||[];}};
   const navItems=[{id:"dashboard",label:"Dashboard",icon:"🏠"},{id:"eclassroom",label:"E-Classroom",icon:"📚"},{id:"subjects",label:"My Subjects",icon:"📖"},{id:"grading",label:"My Results",icon:"📊"},{id:"rate",label:"Rate My Teacher",icon:"⭐"}];
   const renderPage=()=>{
     switch(page){
@@ -1146,7 +1162,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
         <div>
           <h3 style={{margin:"0 0 14px"}}>My Subjects — {student.class}</h3>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10}}>
-            {(CLASS_SUBJECTS[student.class]||[]).map(sub=>{const sc=termScores.find(s=>s.subject===sub);return(<Card key={sub} style={{textAlign:"center"}}>
+            {getStudentSubjects(student.class).map(sub=>{const sc=termScores.find(s=>s.subject===sub);return(<Card key={sub} style={{textAlign:"center"}}>
               <div style={{fontSize:13,fontWeight:"bold",color:"#1e293b",marginBottom:8}}>{sub}</div>
               {sc?<><div style={{fontSize:26,fontWeight:"bold",color:gradeColor(sc.grade)}}>{sc.total}</div><GradeBadge grade={sc.grade}/><div style={{fontSize:12,color:"#64748b",marginTop:4}}>{sc.remark}</div></>
               :<div style={{fontSize:13,color:"#94a3b8"}}>No score yet</div>}
