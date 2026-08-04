@@ -601,11 +601,11 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                 {th("CAT 2")}
                 {th("EXAM")}
                 {th("BA")}
-                {th("TOTAL")}
+                {isTerm3&&<>{th("T1 SCORE",{color:"#f59e0b"})}{th("T2 SCORE",{color:"#f59e0b"})}</>}
+                {th(isTerm3?"TOTAL (T3)":"TOTAL")}
                 {th("GRADE")}
                 {th("POS")}
                 {th("GP")}
-                {isTerm3&&<>{th("T1",{color:"#f59e0b"})}{th("T2",{color:"#f59e0b"})}</>}
                 {th("SUBJECT TEACHER")}
                 {th("REMARK")}
               </>}
@@ -632,11 +632,11 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                   {td(s.cat2||0)}
                   {td(s.exam||0)}
                   {td(s.ba||0)}
+                  {isTerm3&&<>{td(getSub(s.subject,prevTermScores?.term1),{color:"#d97706",fontWeight:"500"})}{td(getSub(s.subject,prevTermScores?.term2),{color:"#d97706",fontWeight:"500"})}</>}
                   {td(<span style={{fontWeight:"bold",color:gradeColor(s.grade)}}>{s.total}</span>)}
                   {td(<GradeBadge grade={s.grade} small/>)}
                   {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
                   {td(getGradeInfo(s.total).gpa)}
-                  {isTerm3&&<>{td(getSub(s.subject,prevTermScores?.term1),{color:"#d97706",fontWeight:"500"})}{td(getSub(s.subject,prevTermScores?.term2),{color:"#d97706",fontWeight:"500"})}</>}
                   {td(subTeacher,{color:"#374151",fontSize:11})}
                   {td(s.remark,{color:"#64748b",fontSize:11})}
                 </>}
@@ -781,29 +781,140 @@ function PerformancePage({user,data,isAdmin}){
   const [selectedClass,setSelectedClass]=useState("");
   const allowedClasses=isAdmin?ALL_CLASSES:(user.classes||[]);
   const classStudents=students.filter(s=>s.class===selectedClass);
+
+  const sortedStudents=classStudents.map(s=>{
+    const ss=scores.filter(r=>r.term_id===selectedTerm&&r.student_id===s.id);
+    const gpa=Number(calcGPA(ss));
+    return{...s,gpa,subjectCount:ss.length};
+  }).sort((a,b)=>b.gpa-a.gpa);
+
+  const barColor=(gpa)=>gpa>=4?"#10b981":gpa>=3?"#3b82f6":gpa>=2?"#f59e0b":"#ef4444";
+  const maxBarWidth=420;
+
+  // Subject average chart data
+  const subjectAverages=(CLASS_SUBJECTS[selectedClass]||[]).map(sub=>{
+    const subScores=classStudents.map(s=>scores.find(r=>r.term_id===selectedTerm&&r.student_id===s.id&&r.subject===sub)?.total||null).filter(v=>v!==null);
+    const avg=subScores.length?(subScores.reduce((a,b)=>a+b,0)/subScores.length):0;
+    return{subject:sub,avg:Math.round(avg*10)/10};
+  }).filter(s=>s.avg>0).sort((a,b)=>b.avg-a.avg);
+
   return(
     <div>
       <Card style={{marginBottom:14,display:"flex",gap:14}}>
         <div style={{flex:1}}><label style={labelStyle}>Term</label><select value={selectedTerm} onChange={e=>setSelectedTerm(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}}>{terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></div>
         <div style={{flex:1}}><label style={labelStyle}>Class</label><select value={selectedClass} onChange={e=>setSelectedClass(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}}><option value="">Select...</option>{allowedClasses.map(c=><option key={c}>{c}</option>)}</select></div>
       </Card>
-      {selectedClass&&<Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{padding:"12px 14px",borderBottom:"1px solid #e2e8f0"}}><h4 style={{margin:0}}>Performance — {selectedClass}</h4></div>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr style={{background:"#f8fafc"}}>{["#","Student","GPA","Subjects","Performance Bar"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-          <tbody>{classStudents.sort((a,b)=>Number(calcGPA(scores.filter(r=>r.term_id===selectedTerm&&r.student_id===b.id)))-Number(calcGPA(scores.filter(r=>r.term_id===selectedTerm&&r.student_id===a.id)))).map((s,i)=>{
-            const ss=scores.filter(r=>r.term_id===selectedTerm&&r.student_id===s.id);
-            const gpa=calcGPA(ss);const gpaNum=Number(gpa);const bar=Math.min((gpaNum/5)*100,100);
-            return(<tr key={s.id} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
-              <td style={{...tdStyle,color:"#94a3b8",fontWeight:"bold"}}>{i+1}</td>
-              <td style={{...tdStyle,fontWeight:"500"}}>{s.name}</td>
-              <td style={{...tdStyle,fontWeight:"bold",color:"#6366f1"}}>{ss.length?gpa:"—"}</td>
-              <td style={tdStyle}>{ss.length}</td>
-              <td style={tdStyle}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:100,height:8,borderRadius:4,background:"#f1f5f9"}}><div style={{width:bar+"%",height:"100%",borderRadius:4,background:gpaNum>=4?"#10b981":gpaNum>=3?"#3b82f6":gpaNum>=2?"#f59e0b":"#ef4444"}}/></div><span style={{fontSize:12,color:"#64748b"}}>{bar.toFixed(0)}%</span></div></td>
-            </tr>);
-          })}</tbody>
-        </table>
-      </Card>}
+
+      {selectedClass&&sortedStudents.length>0&&<>
+        {/* Student performance table */}
+        <Card style={{padding:0,overflow:"hidden",marginBottom:16}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <h4 style={{margin:0}}>Student Rankings — {selectedClass}</h4>
+            <span style={{fontSize:13,color:"#64748b"}}>{sortedStudents.filter(s=>s.subjectCount>0).length} students with results</span>
+          </div>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr style={{background:"#f8fafc"}}>{["#","Student","GPA","Subjects","Performance"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+            <tbody>{sortedStudents.map((s,i)=>{
+              const bar=Math.min((s.gpa/5)*100,100);
+              return(<tr key={s.id} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
+                <td style={{...tdStyle,color:i===0?"#f59e0b":i===1?"#94a3b8":i===2?"#b45309":"#94a3b8",fontWeight:"bold"}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":i+1}</td>
+                <td style={{...tdStyle,fontWeight:"500"}}>{s.name}</td>
+                <td style={{...tdStyle,fontWeight:"bold",color:barColor(s.gpa)}}>{s.subjectCount?s.gpa.toFixed(2):"—"}</td>
+                <td style={tdStyle}>{s.subjectCount}</td>
+                <td style={tdStyle}><div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:100,height:8,borderRadius:4,background:"#f1f5f9"}}>
+                    <div style={{width:bar+"%",height:"100%",borderRadius:4,background:barColor(s.gpa)}}/>
+                  </div>
+                  <span style={{fontSize:12,color:"#64748b"}}>{bar.toFixed(0)}%</span>
+                </div></td>
+              </tr>);
+            })}</tbody>
+          </table>
+        </Card>
+
+        {/* Bar chart — Student GPA */}
+        <Card style={{marginBottom:16}}>
+          <h4 style={{margin:"0 0 20px",color:"#1e293b"}}>📊 Student GPA Chart — {selectedClass}</h4>
+          <div style={{overflowX:"auto"}}>
+            <div style={{minWidth:Math.max(sortedStudents.length*56,400),paddingBottom:8}}>
+              {/* Y axis labels */}
+              <div style={{display:"flex",alignItems:"flex-end",gap:0}}>
+                <div style={{width:36,flexShrink:0,display:"flex",flexDirection:"column",justifyContent:"space-between",height:200,paddingBottom:32,textAlign:"right",paddingRight:8}}>
+                  {[5,4,3,2,1,0].map(v=><span key={v} style={{fontSize:10,color:"#94a3b8"}}>{v}</span>)}
+                </div>
+                {/* Bars */}
+                <div style={{flex:1,position:"relative"}}>
+                  {/* Grid lines */}
+                  <div style={{position:"absolute",top:0,left:0,right:0,height:200}}>
+                    {[0,1,2,3,4,5].map(v=>(
+                      <div key={v} style={{position:"absolute",bottom:(v/5)*200,left:0,right:0,borderTop:"1px dashed #f1f5f9",zIndex:0}}/>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:4,height:200,position:"relative",zIndex:1}}>
+                    {sortedStudents.map((s,i)=>{
+                      const h=Math.max((s.gpa/5)*200,2);
+                      const firstName=s.name.split(" ")[0];
+                      return(
+                        <div key={s.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:44}}>
+                          <span style={{fontSize:10,fontWeight:"bold",color:barColor(s.gpa)}}>{s.subjectCount?s.gpa.toFixed(1):""}</span>
+                          <div style={{width:"70%",height:h,borderRadius:"4px 4px 0 0",background:barColor(s.gpa),opacity:0.9,transition:"height 0.3s",position:"relative"}} title={s.name+" — GPA: "+s.gpa.toFixed(2)}/>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* X axis */}
+                  <div style={{display:"flex",gap:4,marginTop:4,borderTop:"2px solid #e2e8f0",paddingTop:6}}>
+                    {sortedStudents.map(s=>(
+                      <div key={s.id} style={{flex:1,textAlign:"center",fontSize:9,color:"#64748b",minWidth:44,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}} title={s.name}>
+                        {s.name.split(" ")[0]}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {/* Legend */}
+              <div style={{display:"flex",gap:16,marginTop:16,flexWrap:"wrap"}}>
+                {[{color:"#10b981",label:"Excellent (4.0–5.0)"},{color:"#3b82f6",label:"Good (3.0–3.9)"},{color:"#f59e0b",label:"Average (2.0–2.9)"},{color:"#ef4444",label:"Below (0–1.9)"}].map(l=>(
+                  <div key={l.label} style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:12,height:12,borderRadius:3,background:l.color}}/><span style={{fontSize:12,color:"#64748b"}}>{l.label}</span></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Subject average bar chart */}
+        {subjectAverages.length>0&&<Card>
+          <h4 style={{margin:"0 0 20px",color:"#1e293b"}}>📚 Subject Average Scores — {selectedClass}</h4>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {subjectAverages.map(s=>{
+              const pct=(s.avg/100)*100;
+              const color=s.avg>=70?"#10b981":s.avg>=60?"#3b82f6":s.avg>=50?"#f59e0b":"#ef4444";
+              return(
+                <div key={s.subject} style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:200,fontSize:12,color:"#374151",fontWeight:"500",flexShrink:0,textAlign:"right",paddingRight:4}}>{s.subject}</div>
+                  <div style={{flex:1,height:22,background:"#f1f5f9",borderRadius:4,overflow:"hidden",position:"relative"}}>
+                    <div style={{width:pct+"%",height:"100%",background:color,borderRadius:4,transition:"width 0.4s"}}/>
+                    <span style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",fontSize:11,color:pct>25?"white":"#374151",fontWeight:"bold"}}>{s.avg}</span>
+                  </div>
+                  <div style={{width:44,fontSize:12,fontWeight:"bold",color,flexShrink:0}}>{s.avg}/100</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:16,marginTop:16,flexWrap:"wrap"}}>
+            {[{color:"#10b981",label:"70+ (Very Good–Distinction)"},{color:"#3b82f6",label:"60–69 (Good)"},{color:"#f59e0b",label:"50–59 (Average)"},{color:"#ef4444",label:"Below 50 (Fair/Poor)"}].map(l=>(
+              <div key={l.label} style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:12,height:12,borderRadius:3,background:l.color}}/><span style={{fontSize:12,color:"#64748b"}}>{l.label}</span></div>
+            ))}
+          </div>
+        </Card>}
+      </>}
+
+      {selectedClass&&sortedStudents.length===0&&(
+        <Card style={{textAlign:"center",padding:40,border:"1px dashed #e2e8f0"}}>
+          <div style={{fontSize:36,marginBottom:10}}>📊</div>
+          <p style={{color:"#94a3b8"}}>No results entered yet for {selectedClass} this term.</p>
+        </Card>
+      )}
     </div>
   );
 }
