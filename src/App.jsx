@@ -328,7 +328,8 @@ function StudentsPage({user,data,toast,isAdmin,reload}){
   const [showAdd,setShowAdd]=useState(false); const [editing,setEditing]=useState(null);
   const [form,setForm]=useState({id:"",name:"",class:"JSS1",dob:"",parent_pin:"",student_pin:""});
   const [saving,setSaving]=useState(false);
-  const myClasses=isAdmin?ALL_CLASSES:(user.classes||[]);
+  const getClsSubjectsS=(cls)=>{try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}catch{return CLASS_SUBJECTS[cls]||[];}};
+  const myClasses=isAdmin?ALL_CLASSES:ALL_CLASSES.filter(cls=>getClsSubjectsS(cls).some(sub=>user.subjects?.includes(sub)));
   const filtered=students.filter(s=>(classFilter==="All"||s.class===classFilter)&&myClasses.includes(s.class)&&(s.name.toLowerCase().includes(filter.toLowerCase())||s.id.toLowerCase().includes(filter.toLowerCase())));
   const handleSave=async()=>{
     if(!form.id||!form.name) return toast("ID and name required.","error");
@@ -396,15 +397,20 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
   const [selectedClass,setSelectedClass]=useState(""); const [selectedStudent,setSelectedStudent]=useState("");
   const [sheetType,setSheetType]=useState("cat1"); const [localScores,setLocalScores]=useState({});
   const [codingScore,setCodingScore]=useState(0); const [saving,setSaving]=useState(false); const [saved,setSaved]=useState(false);
-  const allowedClasses=isAdmin?ALL_CLASSES:(user.classes||[]);
-  const classStudents=students.filter(s=>s.class===selectedClass);
-
   // Always read from localStorage so Subject Assignment changes are reflected instantly
   const getCustomSubjects=(cls)=>{
     if(!cls) return [];
     try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}
     catch{return CLASS_SUBJECTS[cls]||[];}
   };
+
+  // For teachers: show all classes where they have at least one assigned subject
+  const allowedClasses=isAdmin?ALL_CLASSES:ALL_CLASSES.filter(cls=>{
+    const clsSubjects=getCustomSubjects(cls);
+    return clsSubjects.some(sub=>user.subjects?.includes(sub));
+  });
+
+  const classStudents=students.filter(s=>s.class===selectedClass);
 
   // Teachers only see their assigned subjects; admin sees all
   const allSubjects=getCustomSubjects(selectedClass);
@@ -799,7 +805,8 @@ function PerformancePage({user,data,isAdmin}){
   const {students,scores,terms}=data;
   const [selectedTerm,setSelectedTerm]=useState(data.terms.find(t=>t.active)?.id||"");
   const [selectedClass,setSelectedClass]=useState("");
-  const allowedClasses=isAdmin?ALL_CLASSES:(user.classes||[]);
+  const getClsSubjectsP=(cls)=>{try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}catch{return CLASS_SUBJECTS[cls]||[];}};
+  const allowedClasses=isAdmin?ALL_CLASSES:ALL_CLASSES.filter(cls=>getClsSubjectsP(cls).some(sub=>user.subjects?.includes(sub)));
   const classStudents=students.filter(s=>s.class===selectedClass);
 
   const sortedStudents=classStudents.map(s=>{
