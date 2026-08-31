@@ -405,14 +405,19 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
     try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}
     catch{return CLASS_SUBJECTS[cls]||[];}
   };
-  const subjects=getCustomSubjects(selectedClass);
+
+  // Teachers only see their assigned subjects; admin sees all
+  const allSubjects=getCustomSubjects(selectedClass);
+  const subjects=isAdmin?allSubjects:allSubjects.filter(sub=>user.subjects?.includes(sub));
 
   useEffect(()=>{
     if(selectedStudent&&selectedTerm&&selectedClass){
-      const currentSubjects=getCustomSubjects(selectedClass);
+      // Use filtered subjects (teacher sees only their own, admin sees all)
+      const allSubs=getCustomSubjects(selectedClass);
+      const filteredSubs=isAdmin?allSubs:allSubs.filter(sub=>user.subjects?.includes(sub));
       const existing=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===selectedStudent);
       const init={};
-      currentSubjects.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba}:{cat1:"",cat2:"",exam:"",ba:""};});
+      filteredSubs.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba}:{cat1:"",cat2:"",exam:"",ba:""};});
       setLocalScores(init);
       const cs=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===selectedStudent);
       setCodingScore(cs?.score||0);setSaved(false);
