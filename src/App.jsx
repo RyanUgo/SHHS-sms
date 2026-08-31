@@ -55,6 +55,20 @@ const ENGLISH_SUBJECTS = ["English (Grammar/Speech Work)","English (Literature)"
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const getGradeInfo = s => GRADE_SCALE.find(g=>s>=g.min&&s<=g.max)||GRADE_SCALE[GRADE_SCALE.length-1];
+// CAT sheet: score out of 17.5 → GPA out of 5
+const catToGPA = (total175) => {
+  const pct = (total175 / 17.5) * 100;
+  return getGradeInfo(pct);
+};
+// Subject remark based on subject GPA
+const subjectRemark = (gpa) => {
+  if(gpa>=4.5) return "Excellent performance. Keep it up!";
+  if(gpa>=4.0) return "Very good performance. Well done.";
+  if(gpa>=3.0) return "Good performance. Keep improving.";
+  if(gpa>=2.0) return "Fair performance. More effort needed.";
+  if(gpa>=1.0) return "Below average. Significant improvement required.";
+  return "Poor performance. Urgent improvement needed.";
+};
 const getComment = gpa => COMMENT_DB.find(c=>gpa>=c.min&&gpa<=c.max)||COMMENT_DB[COMMENT_DB.length-1];
 const calcTotal = (c1,c2,ex,ba) => (Number(c1)||0)+(Number(c2)||0)+(Number(ex)||0)+(Number(ba)||0);
 const calcGPA = rows => rows.length?(rows.reduce((s,r)=>s+getGradeInfo(r.total).gpa,0)/rows.length).toFixed(2):"0.00";
@@ -423,7 +437,7 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
       const filteredSubs=isAdmin?allSubs:allSubs.filter(sub=>user.subjects?.includes(sub));
       const existing=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===selectedStudent);
       const init={};
-      filteredSubs.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba}:{cat1:"",cat2:"",exam:"",ba:""};});
+      filteredSubs.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba,cat1_ba:r.cat1_ba||"",cat2_ba:r.cat2_ba||""}:{cat1:"",cat2:"",exam:"",ba:"",cat1_ba:"",cat2_ba:""};});
       setLocalScores(init);
       const cs=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===selectedStudent);
       setCodingScore(cs?.score||0);setSaved(false);
@@ -439,9 +453,23 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
     try{
       for(const sub of subjects){
         const s=localScores[sub]||{};
-        if(s.cat1===""&&s.cat2===""&&s.exam===""&&s.ba==="") continue;
-        const total=calcTotal(s.cat1,s.cat2,s.exam,s.ba);const info=getGradeInfo(total);
-        await db.upsert("scores",{term_id:selectedTerm,student_id:selectedStudent,subject:sub,cat1:Number(s.cat1)||0,cat2:Number(s.cat2)||0,exam:Number(s.exam)||0,ba:Number(s.ba)||0,total,grade:info.grade,gpa:info.gpa,remark:info.remark});
+        if(s.cat1===""&&s.cat2===""&&s.exam===""&&s.ba===""&&s.cat1_ba===""&&s.cat2_ba==="") continue;
+        const total=calcTotal(s.cat1,s.cat2,s.exam,s.ba);
+        const info=getGradeInfo(total);
+        // CAT1 total = cat1 + cat1_ba (out of 17.5)
+        const cat1Total=Number(s.cat1||0)+Number(s.cat1_ba||0);
+        const cat1Info=catToGPA(cat1Total);
+        // CAT2 total = cat2 + cat2_ba (out of 17.5)
+        const cat2Total=Number(s.cat2||0)+Number(s.cat2_ba||0);
+        const cat2Info=catToGPA(cat2Total);
+        await db.upsert("scores",{
+          term_id:selectedTerm,student_id:selectedStudent,subject:sub,
+          cat1:Number(s.cat1)||0,cat2:Number(s.cat2)||0,exam:Number(s.exam)||0,ba:Number(s.ba)||0,
+          cat1_ba:Number(s.cat1_ba)||0,cat2_ba:Number(s.cat2_ba)||0,
+          cat1_total:cat1Total,cat1_gpa:cat1Info.gpa,
+          cat2_total:cat2Total,cat2_gpa:cat2Info.gpa,
+          total,grade:info.grade,gpa:info.gpa,remark:info.remark
+        });
       }
       if(codingScore>0) await db.upsert("coding_scores",{term_id:selectedTerm,student_id:selectedStudent,score:codingScore,remark:CODING_REMARKS[codingScore]||""});
       await reload();setSaved(true);toast("Scores saved!");
@@ -449,8 +477,9 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
     setSaving(false);
   };
   const student=students.find(s=>s.id===selectedStudent);
-  const fieldMax={cat1:15,cat2:15,exam:60,ba:10};
-  const sheetFields={cat1:["cat1"],cat2:["cat2"],exam:["cat1","cat2","exam","ba"]};
+  const fieldMax={cat1:15,cat2:15,exam:60,ba:10,cat1_ba:2.5,cat2_ba:2.5};
+  const sheetFields={cat1:["cat1","cat1_ba"],cat2:["cat2","cat2_ba"],exam:["cat1","cat2","exam","ba"]};
+  const fieldLabels={cat1:"CAT 1 /15",cat2:"CAT 2 /15",exam:"Exam /60",ba:"BA /10",cat1_ba:"BA /2.5",cat2_ba:"BA /2.5"};
   return(
     <div>
       <Card style={{marginBottom:14}}>
@@ -471,17 +500,24 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
             <table style={{width:"100%",borderCollapse:"collapse"}}>
               <thead><tr style={{background:"#f8fafc"}}>
                 <th style={{...thStyle,minWidth:190}}>Subject</th>
-                {sheetFields[sheetType].map(f=><th key={f} style={thStyle}>{f==="cat1"?"CAT 1 /15":f==="cat2"?"CAT 2 /15":f==="exam"?"Exam /60":"BA /10"}</th>)}
-                <th style={thStyle}>Total</th><th style={thStyle}>Grade</th>
+                {sheetFields[sheetType].map(f=><th key={f} style={thStyle}>{fieldLabels[f]||f}</th>)}
+                <th style={thStyle}>{sheetType==="exam"?"Total /100":"Total /17.5"}</th>
+                {sheetType!=="exam"&&<th style={thStyle}>GPA /5</th>}
+                <th style={thStyle}>Grade</th>
               </tr></thead>
               <tbody>{subjects.map((sub,i)=>{
                 const s=localScores[sub]||{};
-                const dt=sheetType==="exam"?calcTotal(s.cat1,s.cat2,s.exam,s.ba):Number(s[sheetType])||0;
-                const info=getGradeInfo(dt);
+                // Calculate display total and GPA depending on sheet type
+                const catTotal=sheetType==="cat1"?(Number(s.cat1)||0)+(Number(s.cat1_ba)||0):sheetType==="cat2"?(Number(s.cat2)||0)+(Number(s.cat2_ba)||0):0;
+                const examTotal=sheetType==="exam"?calcTotal(s.cat1,s.cat2,s.exam,s.ba):0;
+                const dt=sheetType==="exam"?examTotal:catTotal;
+                const info=sheetType==="exam"?getGradeInfo(examTotal):catToGPA(catTotal);
+                const gpaDisplay=sheetType==="exam"?getGradeInfo(examTotal).gpa:catToGPA(catTotal).gpa;
                 return(<tr key={sub} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
                   <td style={{...tdStyle,fontSize:13}}>{sub}</td>
                   {sheetFields[sheetType].map(field=>(<td key={field} style={tdStyle}><input type="number" min="0" max={fieldMax[field]} value={s[field]??""} onChange={e=>handleChange(sub,field,e.target.value)} style={{width:56,padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,textAlign:"center",fontSize:13}}/></td>))}
-                  <td style={{...tdStyle,fontWeight:"bold",color:dt>0?gradeColor(info.grade):"#94a3b8"}}>{dt||"—"}</td>
+                  <td style={{...tdStyle,fontWeight:"bold",color:dt>0?gradeColor(info.grade):"#94a3b8"}}>{dt>0?dt.toFixed(1):"—"}</td>
+                  <td style={{...tdStyle,fontSize:12,color:"#6366f1"}}>{dt>0?gpaDisplay:"—"}</td>
                   <td style={tdStyle}>{dt>0?<GradeBadge grade={info.grade}/>:"—"}</td>
                 </tr>);
               })}</tbody>
@@ -590,8 +626,17 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
     const parts=teacher.name.replace(/^(Mr\.|Mrs\.|Ms\.|Dr\.|Monsieur)\s*/i,"").split(" ");
     return parts[parts.length-1]||teacher.name;
   };
-  const th=(label,extra={})=><th style={{padding:"8px 8px",fontSize:10,color:"#e8c96e",fontWeight:"bold",textAlign:"center",whiteSpace:"nowrap",...extra}}>{label}</th>;
-  const td=(val,extra={})=><td style={{padding:"7px 8px",fontSize:12,textAlign:"center",...extra}}>{val}</td>;
+  const th=(label,extra={})=><th style={{padding:"7px 7px",fontSize:10,color:"#e8c96e",fontWeight:"bold",textAlign:"center",whiteSpace:"nowrap",borderRight:"1px solid rgba(255,255,255,0.05)",...extra}}>{label}</th>;
+  const td=(val,extra={})=><td style={{padding:"6px 7px",fontSize:12,textAlign:"center",borderRight:"1px solid #f1f5f9",...extra}}>{val}</td>;
+  // Auto subject remark from subject GPA
+  const autoSubjectRemark=(gpa)=>{
+    if(gpa>=4.5) return "Excellent";
+    if(gpa>=4.0) return "Very Good";
+    if(gpa>=3.0) return "Good";
+    if(gpa>=2.0) return "Fair";
+    if(gpa>=1.0) return "Poor";
+    return "Very Poor";
+  };
   return(
     <div>
       <div style={{display:"flex",gap:10,marginBottom:14}}>
@@ -615,23 +660,28 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
               {th("SUBJECT",{textAlign:"left",minWidth:170,fontSize:11})}
               {(isCAT1||isCAT2)&&<>
                 {th(isCAT1?"CAT 1 /15":"CAT 2 /15")}
-                {th("BA /10")}
-                {th("GP")}
+                {th("BA /2.5")}
+                {th("GPA /5")}
                 {th("GRADE")}
-                {th("SUBJECT POSITION")}
+                {th("POSITION")}
                 {th("SUBJECT TEACHER")}
                 {th("REMARK")}
               </>}
               {isFull&&<>
-                {th("CAT 1")}
-                {th("CAT 2")}
-                {th("EXAM")}
-                {th("BA")}
-                {isTerm3&&<>{th("T1 SCORE",{color:"#f59e0b"})}{th("T2 SCORE",{color:"#f59e0b"})}</>}
-                {th(isTerm3?"TOTAL (T3)":"TOTAL")}
+                {th("CAT 1 /15")}
+                {th("CAT 2 /15")}
+                {th("EXAM /60")}
+                {th("BA /10")}
+                {th("TOTAL /100")}
+                {th("GPA")}
                 {th("GRADE")}
                 {th("POS")}
-                {th("GP")}
+                {isTerm3&&<>
+                  {th("T1 /100",{color:"#f59e0b"})}
+                  {th("T2 /100",{color:"#f59e0b"})}
+                  {th("T3 /100",{color:"#f59e0b"})}
+                  {th("CGPA",{color:"#a78bfa"})}
+                </>}
                 {th("SUBJECT TEACHER")}
                 {th("REMARK")}
               </>}
@@ -644,28 +694,51 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
               const subTeacher=getSubjectTeacher(s.subject);
               return(<tr key={s.subject} style={{borderBottom:"1px solid #f1f5f9",background:i%2?"#f8fafc":"white"}}>
                 <td style={{padding:"7px 10px",fontSize:12,fontWeight:"500"}}>{s.subject}</td>
-                {(isCAT1||isCAT2)&&<>
-                  {td(<span style={{fontWeight:"bold",color:gradeColor(catInfo.grade)}}>{catScore}</span>)}
-                  {td(s.ba||0)}
-                  {td(catGP)}
-                  {td(<GradeBadge grade={catInfo.grade} small/>)}
-                  {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
-                  {td(subTeacher,{color:"#374151",fontSize:11})}
-                  {td(catInfo.remark,{color:"#64748b",fontSize:11})}
-                </>}
-                {isFull&&<>
-                  {td(s.cat1||0)}
-                  {td(s.cat2||0)}
-                  {td(s.exam||0)}
-                  {td(s.ba||0)}
-                  {isTerm3&&<>{td(getSub(s.subject,prevTermScores?.term1),{color:"#d97706",fontWeight:"500"})}{td(getSub(s.subject,prevTermScores?.term2),{color:"#d97706",fontWeight:"500"})}</>}
-                  {td(<span style={{fontWeight:"bold",color:gradeColor(s.grade)}}>{s.total}</span>)}
-                  {td(<GradeBadge grade={s.grade} small/>)}
-                  {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
-                  {td(getGradeInfo(s.total).gpa)}
-                  {td(subTeacher,{color:"#374151",fontSize:11})}
-                  {td(s.remark,{color:"#64748b",fontSize:11})}
-                </>}
+                {(isCAT1||isCAT2)&&(()=>{
+                  const catRawScore=isCAT1?(Number(s.cat1)||0):(Number(s.cat2)||0);
+                  const catBAScore=isCAT1?(Number(s.cat1_ba)||0):(Number(s.cat2_ba)||0);
+                  const catTotalScore=catRawScore+catBAScore;
+                  const catGPAInfo=catToGPA(catTotalScore);
+                  return(<>
+                    {td(<span style={{fontWeight:"bold",color:gradeColor(catGPAInfo.grade)}}>{catRawScore}</span>)}
+                    {td(catBAScore.toFixed(1))}
+                    {td(<span style={{fontWeight:"bold",color:"#6366f1"}}>{catGPAInfo.gpa}</span>)}
+                    {td(<GradeBadge grade={catGPAInfo.grade} small/>)}
+                    {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
+                    {td(subTeacher,{color:"#374151",fontSize:11})}
+                    {td(autoSubjectRemark(catGPAInfo.gpa),{color:"#64748b",fontSize:11})}
+                  </>);
+                })()}
+                {isFull&&(()=>{
+                  const t1Score=getSub(s.subject,prevTermScores?.term1);
+                  const t2Score=getSub(s.subject,prevTermScores?.term2);
+                  const t3Score=s.total;
+                  // CGPA: average of GPA across available terms
+                  const t1GPA=prevTermScores?.term1?.find(x=>x.subject===s.subject)?.gpa;
+                  const t2GPA=prevTermScores?.term2?.find(x=>x.subject===s.subject)?.gpa;
+                  const t3GPA=s.gpa;
+                  const cgpaVals=[t1GPA,t2GPA,t3GPA].filter(v=>v!=null&&v!==undefined);
+                  const cgpa=cgpaVals.length?(cgpaVals.reduce((a,b)=>a+Number(b),0)/cgpaVals.length).toFixed(2):"—";
+                  const subInfo=getGradeInfo(s.total);
+                  return(<>
+                    {td(s.cat1||0)}
+                    {td(s.cat2||0)}
+                    {td(s.exam||0)}
+                    {td(s.ba||0)}
+                    {td(<span style={{fontWeight:"bold",color:gradeColor(s.grade)}}>{s.total}</span>)}
+                    {td(<span style={{fontWeight:"bold",color:"#6366f1"}}>{subInfo.gpa}</span>)}
+                    {td(<GradeBadge grade={s.grade} small/>)}
+                    {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
+                    {isTerm3&&<>
+                      {td(t1Score,{color:"#d97706",fontWeight:"500"})}
+                      {td(t2Score,{color:"#d97706",fontWeight:"500"})}
+                      {td(t3Score,{color:"#d97706",fontWeight:"500"})}
+                      {td(<span style={{fontWeight:"bold",color:"#7c3aed"}}>{cgpa}</span>)}
+                    </>}
+                    {td(subTeacher,{color:"#374151",fontSize:11})}
+                    {td(autoSubjectRemark(subInfo.gpa),{color:"#64748b",fontSize:11})}
+                  </>);
+                })()}
               </tr>);
             })}</tbody>
           </table>
@@ -692,7 +765,56 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
           </div>
         </div>
         {isFull&&isTerm3&&promotionStatus&&<div style={{padding:"0 26px 14px"}}><PromotionStamp status={promotionStatus}/></div>}
-        <div style={{background:"#0f1923",padding:"10px 26px",textAlign:"center"}}><span style={{color:"#566a7f",fontSize:11}}>{SCHOOL_NAME} · Official Academic Record · {term?.session}</span></div>
+
+        {/* Form Teacher Comment Block */}
+        <div style={{padding:"16px 26px",borderTop:"2px solid #e2e8f0",background:"#fafafa"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:16}}>
+            {/* Form Teacher */}
+            <div>
+              <div style={{marginBottom:10}}>
+                <span style={{fontSize:12,fontWeight:"bold",color:"#374151"}}>Form Teacher's Name: </span>
+                <span style={{fontSize:13,color:"#1e293b",borderBottom:"1px solid #94a3b8",paddingBottom:1,display:"inline-block",minWidth:160}}>{formTeacher?.name||""}</span>
+              </div>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:"bold",color:"#374151",marginBottom:4}}>Comment:</div>
+                <div style={{border:"1px solid #e2e8f0",borderRadius:6,padding:"8px 12px",background:"white",fontSize:13,color:"#374151",fontStyle:"italic",minHeight:36}}>{comment.form}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"flex-end",gap:12,marginTop:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:"#64748b",marginBottom:2}}>Signature:</div>
+                  <div style={{borderBottom:"1px solid #374151",height:28}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:"#64748b",marginBottom:2}}>Date:</div>
+                  <div style={{borderBottom:"1px solid #374151",height:28,fontSize:12,color:"#374151",paddingBottom:2}}>{new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>
+                </div>
+              </div>
+            </div>
+            {/* Head of Academics */}
+            <div>
+              <div style={{marginBottom:10}}>
+                <span style={{fontSize:12,fontWeight:"bold",color:"#374151"}}>Head of Academics Name: </span>
+                <span style={{fontSize:13,color:"#1e293b",borderBottom:"1px solid #94a3b8",paddingBottom:1,display:"inline-block",minWidth:140}}>{"___________________________"}</span>
+              </div>
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:"bold",color:"#374151",marginBottom:4}}>Comment:</div>
+                <div style={{border:"1px solid #e2e8f0",borderRadius:6,padding:"8px 12px",background:"white",fontSize:13,color:"#374151",fontStyle:"italic",minHeight:36}}>{comment.head}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"flex-end",gap:12,marginTop:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:"#64748b",marginBottom:2}}>Signature:</div>
+                  <div style={{borderBottom:"1px solid #374151",height:28}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:"#64748b",marginBottom:2}}>Date:</div>
+                  <div style={{borderBottom:"1px solid #374151",height:28}}/>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:"#1a3a6b",padding:"10px 26px",textAlign:"center"}}><span style={{color:"#bfdbfe",fontSize:11}}>{SCHOOL_NAME} · Official Academic Record · {term?.session}</span></div>
       </div>
     </div>
   );
