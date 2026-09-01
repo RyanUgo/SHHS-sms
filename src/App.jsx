@@ -664,7 +664,6 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                 {th("GPA /5")}
                 {th("GRADE")}
                 {th("POSITION")}
-                {th("SUBJECT TEACHER")}
                 {th("REMARK")}
               </>}
               {isFull&&<>
@@ -672,16 +671,15 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                 {th("CAT 2 /15")}
                 {th("EXAM /60")}
                 {th("BA /10")}
-                {th("TOTAL /100")}
-                {th("GPA")}
+                {isTerm3&&<>
+                  {th("1ST TERM /100",{color:"#f59e0b"})}
+                  {th("2ND TERM /100",{color:"#f59e0b"})}
+                </>}
+                {th(isTerm3?"3RD TERM /100":"TOTAL /100")}
                 {th("GRADE")}
                 {th("POS")}
-                {isTerm3&&<>
-                  {th("T1 /100",{color:"#f59e0b"})}
-                  {th("T2 /100",{color:"#f59e0b"})}
-                  {th("T3 /100",{color:"#f59e0b"})}
-                  {th("CGPA",{color:"#a78bfa"})}
-                </>}
+                {th("GPA")}
+                {isTerm3&&th("CGPA",{color:"#a78bfa"})}
                 {th("SUBJECT TEACHER")}
                 {th("REMARK")}
               </>}
@@ -705,7 +703,6 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                     {td(<span style={{fontWeight:"bold",color:"#6366f1"}}>{catGPAInfo.gpa}</span>)}
                     {td(<GradeBadge grade={catGPAInfo.grade} small/>)}
                     {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
-                    {td(subTeacher,{color:"#374151",fontSize:11})}
                     {td(autoSubjectRemark(catGPAInfo.gpa),{color:"#64748b",fontSize:11})}
                   </>);
                 })()}
@@ -713,7 +710,6 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                   const t1Score=getSub(s.subject,prevTermScores?.term1);
                   const t2Score=getSub(s.subject,prevTermScores?.term2);
                   const t3Score=s.total;
-                  // CGPA: average of GPA across available terms
                   const t1GPA=prevTermScores?.term1?.find(x=>x.subject===s.subject)?.gpa;
                   const t2GPA=prevTermScores?.term2?.find(x=>x.subject===s.subject)?.gpa;
                   const t3GPA=s.gpa;
@@ -725,16 +721,15 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                     {td(s.cat2||0)}
                     {td(s.exam||0)}
                     {td(s.ba||0)}
-                    {td(<span style={{fontWeight:"bold",color:gradeColor(s.grade)}}>{s.total}</span>)}
-                    {td(<span style={{fontWeight:"bold",color:"#6366f1"}}>{subInfo.gpa}</span>)}
-                    {td(<GradeBadge grade={s.grade} small/>)}
-                    {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
                     {isTerm3&&<>
                       {td(t1Score,{color:"#d97706",fontWeight:"500"})}
                       {td(t2Score,{color:"#d97706",fontWeight:"500"})}
-                      {td(t3Score,{color:"#d97706",fontWeight:"500"})}
-                      {td(<span style={{fontWeight:"bold",color:"#7c3aed"}}>{cgpa}</span>)}
                     </>}
+                    {td(<span style={{fontWeight:"bold",color:gradeColor(s.grade)}}>{isTerm3?t3Score:s.total}</span>)}
+                    {td(<GradeBadge grade={s.grade} small/>)}
+                    {td(s.position||"—",{color:"#6366f1",fontWeight:"500"})}
+                    {td(<span style={{fontWeight:"bold",color:"#6366f1"}}>{subInfo.gpa}</span>)}
+                    {isTerm3&&td(<span style={{fontWeight:"bold",color:"#7c3aed"}}>{cgpa}</span>)}
                     {td(subTeacher,{color:"#374151",fontSize:11})}
                     {td(autoSubjectRemark(subInfo.gpa),{color:"#64748b",fontSize:11})}
                   </>);
