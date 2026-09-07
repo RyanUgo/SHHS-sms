@@ -407,119 +407,266 @@ function StudentsPage({user,data,toast,isAdmin,reload}){
 
 function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
   const {students,terms,scores,codingScores}=data;
+  const [mode,setMode]=useState("by-subject");
   const [selectedTerm,setSelectedTerm]=useState(activeTerm?.id||"");
-  const [selectedClass,setSelectedClass]=useState(""); const [selectedStudent,setSelectedStudent]=useState("");
-  const [sheetType,setSheetType]=useState("cat1"); const [localScores,setLocalScores]=useState({});
-  const [codingScore,setCodingScore]=useState(0); const [saving,setSaving]=useState(false); const [saved,setSaved]=useState(false);
-  // Always read from localStorage so Subject Assignment changes are reflected instantly
+  const [selectedClass,setSelectedClass]=useState("");
+  const [selectedSubject,setSelectedSubject]=useState("");
+  const [selectedStudent,setSelectedStudent]=useState("");
+  const [sheetType,setSheetType]=useState("cat1");
+  const [localScores,setLocalScores]=useState({});
+  const [codingScore,setCodingScore]=useState(0);
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+
   const getCustomSubjects=(cls)=>{
     if(!cls) return [];
     try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}
     catch{return CLASS_SUBJECTS[cls]||[];}
   };
-
-  // For teachers: show all classes where they have at least one assigned subject
-  const allowedClasses=isAdmin?ALL_CLASSES:ALL_CLASSES.filter(cls=>{
-    const clsSubjects=getCustomSubjects(cls);
-    return clsSubjects.some(sub=>user.subjects?.includes(sub));
-  });
-
-  const classStudents=students.filter(s=>s.class===selectedClass);
-
-  // Teachers only see their assigned subjects; admin sees all
+  const allowedClasses=isAdmin?ALL_CLASSES:ALL_CLASSES.filter(cls=>
+    getCustomSubjects(cls).some(sub=>user.subjects?.includes(sub))
+  );
   const allSubjects=getCustomSubjects(selectedClass);
   const subjects=isAdmin?allSubjects:allSubjects.filter(sub=>user.subjects?.includes(sub));
+  const classStudents=students.filter(s=>s.class===selectedClass);
+  const fieldMax={cat1:15,cat2:15,exam:60,ba:10,cat1_ba:2.5,cat2_ba:2.5};
+  const sheetFields={cat1:["cat1","cat1_ba"],cat2:["cat2","cat2_ba"],exam:["cat1","cat2","exam","ba"]};
+  const fieldLabels={cat1:"CAT 1 /15",cat2:"CAT 2 /15",exam:"Exam /60",ba:"BA /10",cat1_ba:"BA /2.5",cat2_ba:"BA /2.5"};
 
+  const calcDisplay=(s)=>{
+    const catTotal=sheetType==="cat1"?(Number(s.cat1)||0)+(Number(s.cat1_ba)||0):sheetType==="cat2"?(Number(s.cat2)||0)+(Number(s.cat2_ba)||0):0;
+    const examTotal=sheetType==="exam"?calcTotal(s.cat1,s.cat2,s.exam,s.ba):0;
+    const dt=sheetType==="exam"?examTotal:catTotal;
+    const info=sheetType==="exam"?getGradeInfo(examTotal):catToGPA(catTotal);
+    return{dt,info};
+  };
+
+  // Load scores by student
   useEffect(()=>{
-    if(selectedStudent&&selectedTerm&&selectedClass){
-      // Use filtered subjects (teacher sees only their own, admin sees all)
+    if(mode==="by-student"&&selectedStudent&&selectedTerm&&selectedClass){
       const allSubs=getCustomSubjects(selectedClass);
       const filteredSubs=isAdmin?allSubs:allSubs.filter(sub=>user.subjects?.includes(sub));
       const existing=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===selectedStudent);
       const init={};
-      filteredSubs.forEach(sub=>{const r=existing.find(e=>e.subject===sub);init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba,cat1_ba:r.cat1_ba||"",cat2_ba:r.cat2_ba||""}:{cat1:"",cat2:"",exam:"",ba:"",cat1_ba:"",cat2_ba:""};});
+      filteredSubs.forEach(sub=>{
+        const r=existing.find(e=>e.subject===sub);
+        init[sub]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba,cat1_ba:r.cat1_ba||"",cat2_ba:r.cat2_ba||""}
+                   :{cat1:"",cat2:"",exam:"",ba:"",cat1_ba:"",cat2_ba:""};
+      });
       setLocalScores(init);
       const cs=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===selectedStudent);
-      setCodingScore(cs?.score||0);setSaved(false);
+      setCodingScore(cs?.score||0);
+      setSaved(false);
     }
-  },[selectedStudent,selectedTerm,selectedClass]);
-  const handleChange=(sub,field,val)=>{
-    const max=field==="exam"?60:field==="ba"?10:15;
-    setLocalScores(prev=>({...prev,[sub]:{...prev[sub],[field]:val===""?"":Math.min(Number(val)||0,max)}}));setSaved(false);
+  },[selectedStudent,selectedTerm,selectedClass,mode]);
+
+  // Load scores by subject
+  useEffect(()=>{
+    if(mode==="by-subject"&&selectedSubject&&selectedTerm&&selectedClass){
+      const init={};
+      classStudents.forEach(stu=>{
+        const r=scores.find(s=>s.term_id===selectedTerm&&s.student_id===stu.id&&s.subject===selectedSubject);
+        init[stu.id]=r?{cat1:r.cat1,cat2:r.cat2,exam:r.exam,ba:r.ba,cat1_ba:r.cat1_ba||"",cat2_ba:r.cat2_ba||""}
+                      :{cat1:"",cat2:"",exam:"",ba:"",cat1_ba:"",cat2_ba:""};
+      });
+      setLocalScores(init);
+      setSaved(false);
+    }
+  },[selectedSubject,selectedTerm,selectedClass,mode]);
+
+  const saveScoreRow=async(studentId,subjectName,s)=>{
+    const total=calcTotal(s.cat1,s.cat2,s.exam,s.ba);
+    const info=getGradeInfo(total);
+    const cat1Total=Number(s.cat1||0)+Number(s.cat1_ba||0);
+    const cat1Info=catToGPA(cat1Total);
+    const cat2Total=Number(s.cat2||0)+Number(s.cat2_ba||0);
+    const cat2Info=catToGPA(cat2Total);
+    await db.upsert("scores",{
+      term_id:selectedTerm,student_id:studentId,subject:subjectName,
+      cat1:Number(s.cat1)||0,cat2:Number(s.cat2)||0,exam:Number(s.exam)||0,ba:Number(s.ba)||0,
+      cat1_ba:Number(s.cat1_ba)||0,cat2_ba:Number(s.cat2_ba)||0,
+      cat1_total:cat1Total,cat1_gpa:cat1Info.gpa,
+      cat2_total:cat2Total,cat2_gpa:cat2Info.gpa,
+      total,grade:info.grade,gpa:info.gpa,remark:info.remark
+    });
   };
-  const handleSave=async()=>{
+
+  const handleSaveByStudent=async()=>{
     if(!selectedStudent||!selectedTerm) return;
     setSaving(true);
     try{
-      for(const sub of subjects){
+      const allSubs=getCustomSubjects(selectedClass);
+      const filteredSubs=isAdmin?allSubs:allSubs.filter(sub=>user.subjects?.includes(sub));
+      for(const sub of filteredSubs){
         const s=localScores[sub]||{};
         if(s.cat1===""&&s.cat2===""&&s.exam===""&&s.ba===""&&s.cat1_ba===""&&s.cat2_ba==="") continue;
-        const total=calcTotal(s.cat1,s.cat2,s.exam,s.ba);
-        const info=getGradeInfo(total);
-        // CAT1 total = cat1 + cat1_ba (out of 17.5)
-        const cat1Total=Number(s.cat1||0)+Number(s.cat1_ba||0);
-        const cat1Info=catToGPA(cat1Total);
-        // CAT2 total = cat2 + cat2_ba (out of 17.5)
-        const cat2Total=Number(s.cat2||0)+Number(s.cat2_ba||0);
-        const cat2Info=catToGPA(cat2Total);
-        await db.upsert("scores",{
-          term_id:selectedTerm,student_id:selectedStudent,subject:sub,
-          cat1:Number(s.cat1)||0,cat2:Number(s.cat2)||0,exam:Number(s.exam)||0,ba:Number(s.ba)||0,
-          cat1_ba:Number(s.cat1_ba)||0,cat2_ba:Number(s.cat2_ba)||0,
-          cat1_total:cat1Total,cat1_gpa:cat1Info.gpa,
-          cat2_total:cat2Total,cat2_gpa:cat2Info.gpa,
-          total,grade:info.grade,gpa:info.gpa,remark:info.remark
-        });
+        await saveScoreRow(selectedStudent,sub,s);
       }
       if(codingScore>0) await db.upsert("coding_scores",{term_id:selectedTerm,student_id:selectedStudent,score:codingScore,remark:CODING_REMARKS[codingScore]||""});
       await reload();setSaved(true);toast("Scores saved!");
     }catch(e){toast("Save failed: "+e.message,"error");}
     setSaving(false);
   };
+
+  const handleSaveBySubject=async()=>{
+    if(!selectedSubject||!selectedTerm||!selectedClass) return;
+    setSaving(true);
+    try{
+      for(const stu of classStudents){
+        const s=localScores[stu.id]||{};
+        if(s.cat1===""&&s.cat2===""&&s.exam===""&&s.ba===""&&s.cat1_ba===""&&s.cat2_ba==="") continue;
+        await saveScoreRow(stu.id,selectedSubject,s);
+      }
+      await reload();setSaved(true);toast("All scores saved for "+selectedSubject+"!");
+    }catch(e){toast("Save failed: "+e.message,"error");}
+    setSaving(false);
+  };
+
   const student=students.find(s=>s.id===selectedStudent);
-  const fieldMax={cat1:15,cat2:15,exam:60,ba:10,cat1_ba:2.5,cat2_ba:2.5};
-  const sheetFields={cat1:["cat1","cat1_ba"],cat2:["cat2","cat2_ba"],exam:["cat1","cat2","exam","ba"]};
-  const fieldLabels={cat1:"CAT 1 /15",cat2:"CAT 2 /15",exam:"Exam /60",ba:"BA /10",cat1_ba:"BA /2.5",cat2_ba:"BA /2.5"};
+
   return(
     <div>
+      {/* Mode toggle */}
+      <div style={{display:"flex",marginBottom:14,background:"white",borderRadius:10,border:"1px solid #e2e8f0",overflow:"hidden",width:"fit-content",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        {[["by-subject","📋  By Subject (Class View)"],["by-student","👤  By Student"]].map(([m,l])=>(
+          <button key={m} onClick={()=>{setMode(m);setLocalScores({});setSaved(false);}}
+            style={{padding:"10px 24px",border:"none",cursor:"pointer",
+              background:mode===m?"linear-gradient(135deg,#c9a84c,#e8c96e)":"white",
+              color:mode===m?"#1a2d40":"#64748b",fontWeight:mode===m?"bold":"normal",fontSize:13,transition:"all 0.2s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Selectors */}
       <Card style={{marginBottom:14}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-          <div><label style={labelStyle}>Term</label><select value={selectedTerm} onChange={e=>setSelectedTerm(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}}><option value="">Select...</option>{terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></div>
-          <div><label style={labelStyle}>Class</label><select value={selectedClass} onChange={e=>{setSelectedClass(e.target.value);setSelectedStudent("");}} style={{...selectStyle,width:"100%",marginTop:4}}><option value="">Select...</option>{allowedClasses.map(c=><option key={c}>{c}</option>)}</select></div>
-          <div><label style={labelStyle}>Student</label><select value={selectedStudent} onChange={e=>setSelectedStudent(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}} disabled={!selectedClass}><option value="">Select...</option>{classStudents.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-          <div><label style={labelStyle}>Sheet Type</label><select value={sheetType} onChange={e=>setSheetType(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}}><option value="cat1">CAT 1 Sheet</option><option value="cat2">CAT 2 Sheet</option><option value="exam">Exam Sheet</option></select></div>
+          <div><label style={labelStyle}>Term</label>
+            <select value={selectedTerm} onChange={e=>setSelectedTerm(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}}>
+              <option value="">Select...</option>{terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+          <div><label style={labelStyle}>Class</label>
+            <select value={selectedClass} onChange={e=>{setSelectedClass(e.target.value);setSelectedSubject("");setSelectedStudent("");}} style={{...selectStyle,width:"100%",marginTop:4}}>
+              <option value="">Select...</option>{allowedClasses.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          {mode==="by-subject"?(
+            <div><label style={labelStyle}>Subject</label>
+              <select value={selectedSubject} onChange={e=>setSelectedSubject(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}} disabled={!selectedClass}>
+                <option value="">Select...</option>{subjects.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+          ):(
+            <div><label style={labelStyle}>Student</label>
+              <select value={selectedStudent} onChange={e=>setSelectedStudent(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}} disabled={!selectedClass}>
+                <option value="">Select...</option>{classStudents.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div><label style={labelStyle}>Sheet Type</label>
+            <select value={sheetType} onChange={e=>setSheetType(e.target.value)} style={{...selectStyle,width:"100%",marginTop:4}}>
+              <option value="cat1">CAT 1 Sheet</option>
+              <option value="cat2">CAT 2 Sheet</option>
+              <option value="exam">Exam Sheet</option>
+            </select>
+          </div>
         </div>
       </Card>
-      {selectedStudent&&selectedClass?(
+
+      {/* BY-SUBJECT: all students for one subject */}
+      {mode==="by-subject"&&selectedSubject&&selectedClass&&(
         <Card style={{padding:0,overflow:"hidden"}}>
           <div style={{padding:"12px 18px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div><h4 style={{margin:0}}>{student?.name} — <span style={{color:"#6366f1"}}>{sheetType==="cat1"?"CAT 1":sheetType==="cat2"?"CAT 2":"Exam"} Sheet</span></h4><span style={{fontSize:13,color:"#64748b"}}>{selectedClass} · {student?.id}</span></div>
-            <div style={{display:"flex",gap:8,alignItems:"center"}}>{saved&&<span style={{color:"#10b981",fontSize:13}}>✓ Saved</span>}<GoldButton onClick={handleSave} disabled={saving}>{saving?"Saving...":"Save Scores"}</GoldButton></div>
+            <div>
+              <h4 style={{margin:0}}>{selectedSubject} <span style={{color:"#6366f1"}}>— {sheetType==="cat1"?"CAT 1":sheetType==="cat2"?"CAT 2":"Exam"} Sheet</span></h4>
+              <span style={{fontSize:13,color:"#64748b"}}>{selectedClass} · {classStudents.length} students</span>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {saved&&<span style={{color:"#10b981",fontSize:13}}>✓ Saved</span>}
+              <GoldButton onClick={handleSaveBySubject} disabled={saving}>{saving?"Saving...":"Save All"}</GoldButton>
+            </div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:"#f8fafc"}}>
+                <th style={{...thStyle,minWidth:180}}>Student</th>
+                <th style={thStyle}>ID</th>
+                {sheetFields[sheetType].map(f=><th key={f} style={thStyle}>{fieldLabels[f]}</th>)}
+                <th style={thStyle}>{sheetType==="exam"?"Total /100":"GPA /5"}</th>
+                <th style={thStyle}>Grade</th>
+              </tr></thead>
+              <tbody>
+                {classStudents.map((stu,i)=>{
+                  const s=localScores[stu.id]||{};
+                  const {dt,info}=calcDisplay(s);
+                  const gpaDisplay=sheetType==="exam"?getGradeInfo(dt).gpa:catToGPA(dt).gpa;
+                  return(
+                    <tr key={stu.id} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
+                      <td style={{...tdStyle,fontWeight:"500"}}>{stu.name}</td>
+                      <td style={{...tdStyle,fontFamily:"monospace",fontSize:12,color:"#6366f1"}}>{stu.id}</td>
+                      {sheetFields[sheetType].map(field=>(
+                        <td key={field} style={tdStyle}>
+                          <input type="number" min="0" max={fieldMax[field]} value={s[field]??""}
+                            onChange={e=>setLocalScores(prev=>({...prev,[stu.id]:{...prev[stu.id],[field]:e.target.value===""?"":Math.min(Number(e.target.value)||0,fieldMax[field])}}))}
+                            style={{width:58,padding:"5px 6px",border:"1px solid #e2e8f0",borderRadius:6,textAlign:"center",fontSize:13}}
+                          />
+                        </td>
+                      ))}
+                      <td style={{...tdStyle,fontWeight:"bold",color:dt>0?gradeColor(info.grade):"#94a3b8"}}>{dt>0?(sheetType==="exam"?dt.toFixed(1):gpaDisplay):"—"}</td>
+                      <td style={tdStyle}>{dt>0?<GradeBadge grade={info.grade}/>:"—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{padding:"10px 18px",borderTop:"1px solid #e2e8f0",background:"#f0fdf4",display:"flex",gap:20,fontSize:13}}>
+            <span style={{color:"#64748b"}}>Scores entered: <b style={{color:"#10b981"}}>{classStudents.filter(stu=>sheetFields[sheetType].some(f=>(localScores[stu.id]||{})[f]!==""&&(localScores[stu.id]||{})[f]!==undefined)).length}</b> / {classStudents.length} students</span>
+          </div>
+        </Card>
+      )}
+
+      {/* BY-STUDENT: all subjects for one student */}
+      {mode==="by-student"&&selectedStudent&&selectedClass&&(
+        <Card style={{padding:0,overflow:"hidden"}}>
+          <div style={{padding:"12px 18px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <h4 style={{margin:0}}>{student?.name} — <span style={{color:"#6366f1"}}>{sheetType==="cat1"?"CAT 1":sheetType==="cat2"?"CAT 2":"Exam"} Sheet</span></h4>
+              <span style={{fontSize:13,color:"#64748b"}}>{selectedClass} · {student?.id}</span>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {saved&&<span style={{color:"#10b981",fontSize:13}}>✓ Saved</span>}
+              <GoldButton onClick={handleSaveByStudent} disabled={saving}>{saving?"Saving...":"Save Scores"}</GoldButton>
+            </div>
           </div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}>
               <thead><tr style={{background:"#f8fafc"}}>
                 <th style={{...thStyle,minWidth:190}}>Subject</th>
-                {sheetFields[sheetType].map(f=><th key={f} style={thStyle}>{fieldLabels[f]||f}</th>)}
-                <th style={thStyle}>{sheetType==="exam"?"Total /100":"Total /17.5"}</th>
-                {sheetType!=="exam"&&<th style={thStyle}>GPA /5</th>}
+                {sheetFields[sheetType].map(f=><th key={f} style={thStyle}>{fieldLabels[f]}</th>)}
+                <th style={thStyle}>{sheetType==="exam"?"Total /100":"GPA /5"}</th>
                 <th style={thStyle}>Grade</th>
               </tr></thead>
               <tbody>{subjects.map((sub,i)=>{
                 const s=localScores[sub]||{};
-                // Calculate display total and GPA depending on sheet type
-                const catTotal=sheetType==="cat1"?(Number(s.cat1)||0)+(Number(s.cat1_ba)||0):sheetType==="cat2"?(Number(s.cat2)||0)+(Number(s.cat2_ba)||0):0;
-                const examTotal=sheetType==="exam"?calcTotal(s.cat1,s.cat2,s.exam,s.ba):0;
-                const dt=sheetType==="exam"?examTotal:catTotal;
-                const info=sheetType==="exam"?getGradeInfo(examTotal):catToGPA(catTotal);
-                const gpaDisplay=sheetType==="exam"?getGradeInfo(examTotal).gpa:catToGPA(catTotal).gpa;
-                return(<tr key={sub} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
-                  <td style={{...tdStyle,fontSize:13}}>{sub}</td>
-                  {sheetFields[sheetType].map(field=>(<td key={field} style={tdStyle}><input type="number" min="0" max={fieldMax[field]} value={s[field]??""} onChange={e=>handleChange(sub,field,e.target.value)} style={{width:56,padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,textAlign:"center",fontSize:13}}/></td>))}
-                  <td style={{...tdStyle,fontWeight:"bold",color:dt>0?gradeColor(info.grade):"#94a3b8"}}>{dt>0?dt.toFixed(1):"—"}</td>
-                  <td style={{...tdStyle,fontSize:12,color:"#6366f1"}}>{dt>0?gpaDisplay:"—"}</td>
-                  <td style={tdStyle}>{dt>0?<GradeBadge grade={info.grade}/>:"—"}</td>
-                </tr>);
+                const {dt,info}=calcDisplay(s);
+                const gpaDisplay=sheetType==="exam"?getGradeInfo(dt).gpa:catToGPA(dt).gpa;
+                return(
+                  <tr key={sub} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
+                    <td style={{...tdStyle,fontSize:13}}>{sub}</td>
+                    {sheetFields[sheetType].map(field=>(
+                      <td key={field} style={tdStyle}>
+                        <input type="number" min="0" max={fieldMax[field]} value={s[field]??""}
+                          onChange={e=>setLocalScores(prev=>({...prev,[sub]:{...prev[sub],[field]:e.target.value===""?"":Math.min(Number(e.target.value)||0,fieldMax[field])}}))}
+                          style={{width:56,padding:"4px 6px",border:"1px solid #e2e8f0",borderRadius:6,textAlign:"center",fontSize:13}}
+                        />
+                      </td>
+                    ))}
+                    <td style={{...tdStyle,fontWeight:"bold",color:dt>0?gradeColor(info.grade):"#94a3b8"}}>{dt>0?(sheetType==="exam"?dt.toFixed(1):gpaDisplay):"—"}</td>
+                    <td style={tdStyle}>{dt>0?<GradeBadge grade={info.grade}/>:"—"}</td>
+                  </tr>
+                );
               })}</tbody>
             </table>
           </div>
@@ -529,15 +676,20 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
             {codingScore>0&&<span style={{fontSize:13,color:"#6366f1"}}>{CODING_REMARKS[codingScore]}</span>}
           </div>
         </Card>
-      ):(
-        <Card style={{textAlign:"center",padding:60,border:"1px dashed #e2e8f0"}}><div style={{fontSize:40,marginBottom:12}}>📝</div><p style={{color:"#94a3b8"}}>Select term, class, student and sheet type</p></Card>
+      )}
+
+      {/* Empty state */}
+      {((mode==="by-subject"&&!selectedSubject)||(mode==="by-student"&&!selectedStudent))&&(
+        <Card style={{textAlign:"center",padding:60,border:"1px dashed #e2e8f0"}}>
+          <div style={{fontSize:40,marginBottom:12}}>{mode==="by-subject"?"📋":"👤"}</div>
+          <p style={{color:"#94a3b8"}}>{mode==="by-subject"?"Select a term, class and subject to score the whole class at once":"Select a term, class and student to enter all subject scores"}</p>
+        </Card>
       )}
     </div>
   );
 }
 
 
-// ─── REPORTS PAGE ─────────────────────────────────────────────────────────────
 function ReportsPage({data}){
   const {students,scores,terms,staff,attendance,codingScores}=data;
   const [selectedTerm,setSelectedTerm]=useState(terms.find(t=>t.active)?.id||"");
