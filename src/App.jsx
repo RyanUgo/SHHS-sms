@@ -1394,6 +1394,19 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const gpa=calcGPA(termScores);
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
   const myAssignments=assignments.filter(a=>a.class===student.class);
+
+  // For Term 3 full result — auto-load Term 1 & Term 2 scores
+  const currentTerm=terms.find(t=>t.id===selectedTerm);
+  const isTerm3View=currentTerm?.term===3;
+  const sessionTerms=isTerm3View?terms.filter(t=>t.session===currentTerm.session).sort((a,b)=>a.term-b.term):[];
+  const term1=sessionTerms.find(t=>t.term===1);
+  const term2=sessionTerms.find(t=>t.term===2);
+  const term1Scores=term1?scores.filter(s=>s.term_id===term1.id&&s.student_id===student.id):[];
+  const term2Scores=term2?scores.filter(s=>s.term_id===term2.id&&s.student_id===student.id):[];
+  const getT1Score=(subject)=>term1Scores.find(s=>s.subject===subject)?.total??null;
+  const getT2Score=(subject)=>term2Scores.find(s=>s.subject===subject)?.total??null;
+  const getT1GPA=(subject)=>term1Scores.find(s=>s.subject===subject)?.gpa??null;
+  const getT2GPA=(subject)=>term2Scores.find(s=>s.subject===subject)?.gpa??null;
   const codingScore=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===student.id);
   const getStudentSubjects=(cls)=>{try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}catch{return CLASS_SUBJECTS[cls]||[];}};
   const navItems=[{id:"dashboard",label:"Dashboard",icon:"🏠"},{id:"eclassroom",label:"E-Classroom",icon:"📚"},{id:"subjects",label:"My Subjects",icon:"📖"},{id:"grading",label:"My Results",icon:"📊"},{id:"rate",label:"Rate My Teacher",icon:"⭐"}];
@@ -1498,7 +1511,19 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
                       <th style={{...thStyle,minWidth:160}}>Subject</th>
                       {resultType==="cat1"&&<><th style={thStyle}>CAT 1 /15</th><th style={thStyle}>BA /2.5</th><th style={thStyle}>GPA /5</th><th style={thStyle}>Grade</th><th style={thStyle}>Position</th><th style={thStyle}>Remark</th></>}
                       {resultType==="cat2"&&<><th style={thStyle}>CAT 2 /15</th><th style={thStyle}>BA /2.5</th><th style={thStyle}>GPA /5</th><th style={thStyle}>Grade</th><th style={thStyle}>Position</th><th style={thStyle}>Remark</th></>}
-                      {resultType==="full"&&<><th style={thStyle}>CAT1</th><th style={thStyle}>CAT2</th><th style={thStyle}>Exam</th><th style={thStyle}>BA</th><th style={thStyle}>Total</th><th style={thStyle}>GPA</th><th style={thStyle}>Grade</th><th style={thStyle}>Pos</th><th style={thStyle}>Remark</th></>}
+                      {resultType==="full"&&<>
+                        <th style={thStyle}>CAT1</th>
+                        <th style={thStyle}>CAT2</th>
+                        <th style={thStyle}>Exam</th>
+                        <th style={thStyle}>BA</th>
+                        {isTerm3View&&<><th style={{...thStyle,color:"#d97706"}}>T1 /100</th><th style={{...thStyle,color:"#d97706"}}>T2 /100</th></>}
+                        <th style={thStyle}>{isTerm3View?"T3 /100":"Total"}</th>
+                        <th style={thStyle}>GPA</th>
+                        <th style={thStyle}>Grade</th>
+                        <th style={thStyle}>Pos</th>
+                        {isTerm3View&&<th style={{...thStyle,color:"#7c3aed"}}>CGPA</th>}
+                        <th style={thStyle}>Remark</th>
+                      </>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1531,17 +1556,31 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
                             <td style={{...tdStyle,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
                             <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
                           </>}
-                          {resultType==="full"&&<>
-                            <td style={{...tdStyle,textAlign:"center"}}>{s.cat1||0}</td>
-                            <td style={{...tdStyle,textAlign:"center"}}>{s.cat2||0}</td>
-                            <td style={{...tdStyle,textAlign:"center"}}>{s.exam||0}</td>
-                            <td style={{...tdStyle,textAlign:"center"}}>{s.ba||0}</td>
-                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:gradeColor(fullInfo.grade)}}>{s.total}</td>
-                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:"#6366f1"}}>{fullInfo.gpa}</td>
-                            <td style={{...tdStyle,textAlign:"center"}}><GradeBadge grade={fullInfo.grade}/></td>
-                            <td style={{...tdStyle,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
-                            <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
-                          </>}
+                          {resultType==="full"&&(()=>{
+                            const t1=getT1Score(s.subject);
+                            const t2=getT2Score(s.subject);
+                            const t1gpa=getT1GPA(s.subject);
+                            const t2gpa=getT2GPA(s.subject);
+                            const t3gpa=fullInfo.gpa;
+                            const cgpaVals=[t1gpa,t2gpa,t3gpa].filter(v=>v!=null);
+                            const cgpa=cgpaVals.length?(cgpaVals.reduce((a,b)=>a+Number(b),0)/cgpaVals.length).toFixed(2):"—";
+                            return(<>
+                              <td style={{...tdStyle,textAlign:"center"}}>{s.cat1||0}</td>
+                              <td style={{...tdStyle,textAlign:"center"}}>{s.cat2||0}</td>
+                              <td style={{...tdStyle,textAlign:"center"}}>{s.exam||0}</td>
+                              <td style={{...tdStyle,textAlign:"center"}}>{s.ba||0}</td>
+                              {isTerm3View&&<>
+                                <td style={{...tdStyle,textAlign:"center",color:"#d97706",fontWeight:"500"}}>{t1!=null?t1:"—"}</td>
+                                <td style={{...tdStyle,textAlign:"center",color:"#d97706",fontWeight:"500"}}>{t2!=null?t2:"—"}</td>
+                              </>}
+                              <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:gradeColor(fullInfo.grade)}}>{s.total}</td>
+                              <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:"#6366f1"}}>{fullInfo.gpa}</td>
+                              <td style={{...tdStyle,textAlign:"center"}}><GradeBadge grade={fullInfo.grade}/></td>
+                              <td style={{...tdStyle,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
+                              {isTerm3View&&<td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:"#7c3aed"}}>{cgpa}</td>}
+                              <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
+                            </>);
+                          })()}
                         </tr>
                       );
                     })}
