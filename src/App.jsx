@@ -1387,6 +1387,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const {students,scores,terms,attendance,assignments,staff,ratings,codingScores}=data;
   const [page,setPage]=useState("dashboard");
   const [selectedTerm,setSelectedTerm]=useState(activeTerm?.id||"");
+  const [resultType,setResultType]=useState("cat1");
   const student=students.find(s=>s.id===user.studentId);
   if(!student) return <div style={{padding:40,textAlign:"center"}}>Student not found.</div>;
   const termScores=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===student.id);
@@ -1454,31 +1455,108 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
       );
       case "grading": return(
         <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          {/* Term + Sheet Type selectors */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:10}}>
             <h3 style={{margin:0}}>My Results</h3>
-            <select value={selectedTerm} onChange={e=>setSelectedTerm(e.target.value)} style={selectStyle}>{terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <div>
+                <label style={{...labelStyle,display:"block",marginBottom:3}}>Term</label>
+                <select value={selectedTerm} onChange={e=>setSelectedTerm(e.target.value)} style={selectStyle}>
+                  {terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{...labelStyle,display:"block",marginBottom:3}}>Result Type</label>
+                <select value={resultType} onChange={e=>setResultType(e.target.value)} style={selectStyle}>
+                  <option value="cat1">CAT 1 Result</option>
+                  <option value="cat2">CAT 2 Result</option>
+                  <option value="full">Full Term Result</option>
+                </select>
+              </div>
+            </div>
           </div>
+
+          {/* Stat cards */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:14}}>
-            <StatCard label="GPA" value={termScores.length?gpa:"—"} icon="📊" color="#6366f1"/>
+            <StatCard label="Term GPA" value={termScores.length?gpa:"—"} icon="📊" color="#6366f1"/>
             <StatCard label="Days Present" value={att.present??"—"} icon="✅" color="#10b981"/>
             {codingScore&&<StatCard label="Coding Score" value={codingScore.score+"/5"} icon="💻" color="#f59e0b"/>}
           </div>
-          {termScores.length>0?<Card style={{padding:0,overflow:"hidden"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead><tr style={{background:"#f8fafc"}}>{["Subject","CAT 1","CAT 2","Exam","BA","Total","Grade","Remark"].map(h=><th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-              <tbody>{termScores.map((s,i)=>(<tr key={s.subject} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
-                <td style={{...tdStyle,fontSize:13}}>{s.subject}</td>
-                <td style={{...tdStyle,textAlign:"center"}}>{s.cat1||0}</td><td style={{...tdStyle,textAlign:"center"}}>{s.cat2||0}</td>
-                <td style={{...tdStyle,textAlign:"center"}}>{s.exam||0}</td><td style={{...tdStyle,textAlign:"center"}}>{s.ba||0}</td>
-                <td style={{...tdStyle,fontWeight:"bold",textAlign:"center",color:gradeColor(s.grade)}}>{s.total}</td>
-                <td style={{...tdStyle,textAlign:"center"}}><GradeBadge grade={s.grade}/></td>
-                <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
-              </tr>))}</tbody>
-            </table>
-          </Card>:<Card style={{textAlign:"center",padding:40,border:"1px dashed #e2e8f0"}}><p style={{color:"#94a3b8"}}>No results yet.</p></Card>}
+
+          {termScores.length>0?(
+            <Card style={{padding:0,overflow:"hidden"}}>
+              <div style={{padding:"10px 16px",background:"#1a2d40",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{color:"#e8c96e",fontWeight:"bold",fontSize:13}}>
+                  {resultType==="cat1"?"CAT 1 Assessment Result":resultType==="cat2"?"CAT 2 Assessment Result":"Full Term Result"} — {terms.find(t=>t.id===selectedTerm)?.label}
+                </span>
+                <span style={{color:"#8a9bb0",fontSize:12}}>{student.class} · {student.id}</span>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{background:"#f8fafc"}}>
+                      <th style={{...thStyle,minWidth:160}}>Subject</th>
+                      {resultType==="cat1"&&<><th style={thStyle}>CAT 1 /15</th><th style={thStyle}>BA /2.5</th><th style={thStyle}>GPA /5</th><th style={thStyle}>Grade</th><th style={thStyle}>Position</th><th style={thStyle}>Remark</th></>}
+                      {resultType==="cat2"&&<><th style={thStyle}>CAT 2 /15</th><th style={thStyle}>BA /2.5</th><th style={thStyle}>GPA /5</th><th style={thStyle}>Grade</th><th style={thStyle}>Position</th><th style={thStyle}>Remark</th></>}
+                      {resultType==="full"&&<><th style={thStyle}>CAT1</th><th style={thStyle}>CAT2</th><th style={thStyle}>Exam</th><th style={thStyle}>BA</th><th style={thStyle}>Total</th><th style={thStyle}>GPA</th><th style={thStyle}>Grade</th><th style={thStyle}>Pos</th><th style={thStyle}>Remark</th></>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {termScores.map((s,i)=>{
+                      const cat1Score=Number(s.cat1)||0;
+                      const cat1BA=Number(s.cat1_ba)||0;
+                      const cat1Total=cat1Score+cat1BA;
+                      const cat1Info=catToGPA(cat1Total);
+                      const cat2Score=Number(s.cat2)||0;
+                      const cat2BA=Number(s.cat2_ba)||0;
+                      const cat2Total=cat2Score+cat2BA;
+                      const cat2Info=catToGPA(cat2Total);
+                      const fullInfo=getGradeInfo(s.total);
+                      return(
+                        <tr key={s.subject} style={{borderTop:"1px solid #f1f5f9",background:i%2?"#fafafa":"white"}}>
+                          <td style={{...tdStyle,fontSize:13,fontWeight:"500"}}>{s.subject}</td>
+                          {resultType==="cat1"&&<>
+                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:gradeColor(cat1Info.grade)}}>{cat1Score}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}>{cat1BA.toFixed(1)}</td>
+                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:"#6366f1"}}>{cat1Info.gpa}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}><GradeBadge grade={cat1Info.grade}/></td>
+                            <td style={{...tdStyle,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
+                            <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
+                          </>}
+                          {resultType==="cat2"&&<>
+                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:gradeColor(cat2Info.grade)}}>{cat2Score}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}>{cat2BA.toFixed(1)}</td>
+                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:"#6366f1"}}>{cat2Info.gpa}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}><GradeBadge grade={cat2Info.grade}/></td>
+                            <td style={{...tdStyle,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
+                            <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
+                          </>}
+                          {resultType==="full"&&<>
+                            <td style={{...tdStyle,textAlign:"center"}}>{s.cat1||0}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}>{s.cat2||0}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}>{s.exam||0}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}>{s.ba||0}</td>
+                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:gradeColor(fullInfo.grade)}}>{s.total}</td>
+                            <td style={{...tdStyle,textAlign:"center",fontWeight:"bold",color:"#6366f1"}}>{fullInfo.gpa}</td>
+                            <td style={{...tdStyle,textAlign:"center"}}><GradeBadge grade={fullInfo.grade}/></td>
+                            <td style={{...tdStyle,textAlign:"center",color:"#6366f1"}}>{s.position||"—"}</td>
+                            <td style={{...tdStyle,fontSize:12,color:"#64748b"}}>{s.remark}</td>
+                          </>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {/* GPA summary */}
+              <div style={{padding:"12px 16px",borderTop:"1px solid #e2e8f0",background:"#f8fafc",display:"flex",gap:20,alignItems:"center"}}>
+                <div style={{fontSize:13,color:"#64748b"}}>Term GPA: <span style={{fontWeight:"bold",color:"#6366f1",fontSize:16}}>{gpa}</span></div>
+                {codingScore&&<div style={{fontSize:13,color:"#64748b"}}>Coding: <span style={{fontWeight:"bold",color:"#f59e0b"}}>{codingScore.score}/5 — {CODING_REMARKS[codingScore.score]}</span></div>}
+              </div>
+            </Card>
+          ):<Card style={{textAlign:"center",padding:40,border:"1px dashed #e2e8f0"}}><p style={{color:"#94a3b8"}}>No results yet for this term.</p></Card>}
         </div>
-      );
-      case "rate": return <RateTeacherPage student={student} data={data} toast={toast} reload={reload} selectedTerm={selectedTerm}/>;
+      );case "rate": return <RateTeacherPage student={student} data={data} toast={toast} reload={reload} selectedTerm={selectedTerm}/>;
       default: return null;
     }
   };
