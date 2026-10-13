@@ -18,7 +18,17 @@ const db = {
   select: (table, query="") => sbFetch(query?`${table}?${query}`:table),
   insert: (table, data) => sbFetch(table,"POST",data),
   update: (table, match, data) => sbFetch(`${table}?${match}`,"PATCH",data),
-  upsert: (table, data) => sbFetch(table,"POST",data,"resolution=merge-duplicates,return=representation"),
+  // upsert with explicit on_conflict columns per table
+  upsert: (table, data, onConflict) => {
+    const conflict = onConflict || {
+      scores: "term_id,student_id,subject",
+      attendance: "term_id,student_id",
+      coding_scores: "term_id,student_id",
+      teacher_ratings: "teacher_id,student_id,term_id",
+    }[table] || "";
+    const path = conflict ? `${table}?on_conflict=${encodeURIComponent(conflict)}` : table;
+    return sbFetch(path,"POST",data,"resolution=merge-duplicates,return=representation");
+  },
   delete: (table, match) => sbFetch(`${table}?${match}`,"DELETE"),
 };
 
@@ -481,28 +491,14 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
     const cat1Info=catToGPA(cat1Total);
     const cat2Total=Number(s.cat2||0)+Number(s.cat2_ba||0);
     const cat2Info=catToGPA(cat2Total);
-    const payload={
+    await db.upsert("scores",{
       term_id:selectedTerm,student_id:studentId,subject:subjectName,
       cat1:Number(s.cat1)||0,cat2:Number(s.cat2)||0,exam:Number(s.exam)||0,ba:Number(s.ba)||0,
       cat1_ba:Number(s.cat1_ba)||0,cat2_ba:Number(s.cat2_ba)||0,
       cat1_total:cat1Total,cat1_gpa:cat1Info.gpa,
       cat2_total:cat2Total,cat2_gpa:cat2Info.gpa,
       total,grade:info.grade,gpa:info.gpa,remark:info.remark
-    };
-    // Check if record exists first
-    const existing=await db.select("scores",
-      "term_id=eq."+selectedTerm+"&student_id=eq."+studentId+"&subject=eq."+encodeURIComponent(subjectName)
-    );
-    if(existing&&existing.length>0){
-      // Update existing record
-      await db.update("scores",
-        "term_id=eq."+selectedTerm+"&student_id=eq."+studentId+"&subject=eq."+encodeURIComponent(subjectName),
-        payload
-      );
-    } else {
-      // Insert new record
-      await db.insert("scores", payload);
-    }
+    });
   };
 
   const handleSaveByStudent=async()=>{
@@ -516,14 +512,7 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
         if(s.cat1===""&&s.cat2===""&&s.exam===""&&s.ba===""&&s.cat1_ba===""&&s.cat2_ba==="") continue;
         await saveScoreRow(selectedStudent,sub,s);
       }
-      if(codingScore>0){
-        const existingCS=await db.select("coding_scores","term_id=eq."+selectedTerm+"&student_id=eq."+selectedStudent);
-        if(existingCS&&existingCS.length>0){
-          await db.update("coding_scores","term_id=eq."+selectedTerm+"&student_id=eq."+selectedStudent,{score:codingScore,remark:CODING_REMARKS[codingScore]||""});
-        } else {
-          await db.insert("coding_scores",{term_id:selectedTerm,student_id:selectedStudent,score:codingScore,remark:CODING_REMARKS[codingScore]||""});
-        }
-      }
+      if(codingScore>0) await db.upsert("coding_scores",{term_id:selectedTerm,student_id:selectedStudent,score:codingScore,remark:CODING_REMARKS[codingScore]||""});
       await reload();setSaved(true);toast("Scores saved!");
     }catch(e){toast("Save failed: "+e.message,"error");}
     setSaving(false);
@@ -999,9 +988,7 @@ function AttendancePage({data,toast,reload}){
   },[selectedClass,selectedTerm,attendance]);
   const handleSave=async()=>{
     setSaving(true);
-    try{for(const [sid,a] of Object.entries(localAtt)) const existingAtt=await db.select("attendance","term_id=eq."+selectedTerm+"&student_id=eq."+sid);
-        if(existingAtt&&existingAtt.length>0){await db.update("attendance","term_id=eq."+selectedTerm+"&student_id=eq."+sid,{present:Number(a.present)||0,total:totalDays});}
-        else{await db.insert("attendance",{term_id:selectedTerm,student_id:sid,present:Number(a.present)||0,total:totalDays});}await reload();toast("Saved!");}
+    try{for(const [sid,a] of Object.entries(localAtt)) await db.upsert("attendance",{term_id:selectedTerm,student_id:sid,present:Number(a.present)||0,total:totalDays});await reload();toast("Saved!");}
     catch(e){toast("Error: "+e.message,"error");}
     setSaving(false);
   };
@@ -1870,9 +1857,7 @@ function RateTeacherPage({student,data,toast,reload,selectedTerm}){
   const handleSave=async(tid)=>{
     if(!rv[tid]) return toast("Please select a rating.","error");
     setSaving(tid);
-    try{const existingR=await db.select("teacher_ratings","teacher_id=eq."+tid+"&student_id=eq."+student.id+"&term_id=eq."+selectedTerm);
-      if(existingR&&existingR.length>0){await db.update("teacher_ratings","teacher_id=eq."+tid+"&student_id=eq."+student.id+"&term_id=eq."+selectedTerm,{rating:rv[tid],comment:rc[tid]||""});}
-      else{await db.insert("teacher_ratings",{teacher_id:tid,student_id:student.id,term_id:selectedTerm,rating:rv[tid],comment:rc[tid]||""});}await reload();toast("Rating submitted!");}
+    try{await db.upsert("teacher_ratings",{teacher_id:tid,student_id:student.id,term_id:selectedTerm,rating:rv[tid],comment:rc[tid]||""});await reload();toast("Rating submitted!");}
     catch(e){toast("Error: "+e.message,"error");}
     setSaving(null);
   };
