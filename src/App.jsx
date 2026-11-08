@@ -166,10 +166,16 @@ export default function App(){
     setLoading(false);
   },[]);
   useEffect(()=>{if(user)loadAll();},[user]);
+  useEffect(()=>{try{
+    document.title="Sated Haven High School SMS";
+    let l=document.querySelector("link[rel~='icon']");
+    if(!l){l=document.createElement("link");l.rel="icon";document.head.appendChild(l);}
+    l.type="image/png";l.href=SCHOOL_LOGO;
+  }catch(e){}},[]);
   const activeTerm=data.terms.find(t=>t.active)||data.terms[data.terms.length-1];
   if(!user) return <LoginPage onLogin={(u,pg)=>{setUser(u);setPage(pg||"dashboard");}} />;
   if(user.role==="student") return <StudentPortal user={user} data={data} activeTerm={activeTerm} onLogout={()=>setUser(null)} toast={toast} notify={notify} reload={loadAll}/>;
-  if(user.role==="parent") return <ParentPortal user={user} data={data} onLogout={()=>setUser(null)} toast={toast} notify={notify}/>;
+  if(user.role==="parent") return <StudentPortal user={user} data={data} activeTerm={activeTerm} onLogout={()=>setUser(null)} toast={toast} notify={notify} reload={loadAll}/>;
   return <MainLayout user={user} page={page} setPage={setPage} data={data} activeTerm={activeTerm} toast={toast} notify={notify} reload={loadAll} loading={loading} onLogout={()=>setUser(null)}/>;
 }
 
@@ -1032,7 +1038,7 @@ function ELearningPage({user,data,toast,isAdmin,reload}){
   const handleSave=async()=>{
     if(!form.title||!form.subject) return toast("Title and subject required.","error");
     setSaving(true);
-    try{await db.insert("assignments",{...form,teacher_id:user.id,term_id:activeTerm2?.id||""});await reload();toast("Posted!");setShowAdd(false);setForm({title:"",description:"",class:"JSS1",subject:"",drive_link:"",type:"assignment"});}
+    try{await db.insert("assignments",{...form,teacher_id:user.id,term_id:activeTerm2?.id||""});await reload();toast("Posted to "+form.class+"! Only students in "+form.class+" will see it.");setShowAdd(false);setForm({title:"",description:"",class:"JSS1",subject:"",drive_link:"",type:"assignment"});}
     catch(e){toast("Error: "+e.message,"error");}
     setSaving(false);
   };
@@ -1312,6 +1318,15 @@ function TermsPage({data,toast,reload}){
     try{await db.update("terms","active=eq.true",{active:false});await db.update("terms","id=eq."+id,{active:true});await reload();toast("Active term updated!");}
     catch(e){toast("Error: "+e.message,"error");}
   };
+  const handleDelete=async(t)=>{
+    if(t.active) return toast("Set another term as Active before deleting this one.","error");
+    if(!window.confirm("Delete "+t.label+"?\n\nThis also permanently deletes ALL scores, attendance, coding scores, assignments and teacher ratings recorded for this term. This cannot be undone.")) return;
+    try{
+      for(const tb of ["scores","attendance","coding_scores","assignments","teacher_ratings"]) await db.delete(tb,"term_id=eq."+encodeURIComponent(t.id));
+      await db.delete("terms","id=eq."+encodeURIComponent(t.id));
+      await reload();toast("Term deleted.");
+    }catch(e){toast("Error: "+e.message,"error");}
+  };
   return(
     <div>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}><GoldButton onClick={()=>setShowAdd(!showAdd)}>+ Add Term</GoldButton></div>
@@ -1330,7 +1345,7 @@ function TermsPage({data,toast,reload}){
         {terms.map(t=>(<div key={t.id} style={{background:"white",borderRadius:12,padding:16,border:"2px solid "+(t.active?"#c9a84c":"#e2e8f0"),display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div><div style={{fontWeight:"bold",color:"#1e293b"}}>{t.label}</div><div style={{color:"#64748b",fontSize:13}}>Session: {t.session} · Term {t.term}</div></div>
           {t.active?<span style={{background:"#d1fae5",color:"#065f46",padding:"5px 14px",borderRadius:20,fontSize:13,fontWeight:"bold"}}>✓ Active</span>
-            :<button onClick={()=>setActive(t.id)} style={{padding:"7px 14px",borderRadius:8,border:"1px solid #c9a84c",background:"transparent",cursor:"pointer",color:"#92400e",fontSize:13}}>Set Active</button>}
+            :<div style={{display:"flex",gap:8}}><button onClick={()=>setActive(t.id)} style={{padding:"7px 14px",borderRadius:8,border:"1px solid #c9a84c",background:"transparent",cursor:"pointer",color:"#92400e",fontSize:13}}>Set Active</button><button onClick={()=>handleDelete(t)} style={{padding:"7px 14px",borderRadius:8,border:"1px solid #fca5a5",background:"#fef2f2",cursor:"pointer",color:"#b91c1c",fontSize:13}}>🗑 Delete</button></div>}
         </div>))}
       </div>
     </div>
@@ -1403,7 +1418,9 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const termScores=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===student.id);
   const gpa=calcGPA(termScores);
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
-  const myAssignments=assignments.filter(a=>a.class===student.class);
+  const normCls=c=>String(c||"").replace(/\s+/g,"").toLowerCase();
+  const myAssignments=assignments.filter(a=>normCls(a.class)===normCls(student.class));
+  useEffect(()=>{if(page==="eclassroom"||page==="dashboard"){try{reload();}catch(e){}}},[page]);
 
   // For Term 3 full result — auto-load Term 1 & Term 2 scores
   const currentTerm=terms.find(t=>t.id===selectedTerm);
@@ -1448,7 +1465,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
       );
       case "eclassroom": return(
         <div>
-          <h3 style={{margin:"0 0 14px"}}>E-Classroom</h3>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"0 0 14px"}}><h3 style={{margin:0}}>E-Classroom</h3><button onClick={()=>reload()} style={{padding:"7px 14px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",cursor:"pointer",fontSize:13}}>🔄 Refresh</button></div>
           <div style={{display:"grid",gap:10}}>
             {myAssignments.map(a=>{const teacher=staff.find(s=>s.id===a.teacher_id);return(<Card key={a.id}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
