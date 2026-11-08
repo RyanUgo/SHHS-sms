@@ -1416,6 +1416,8 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const [page,setPage]=useState("dashboard");
   const [selectedTerm,setSelectedTerm]=useState(activeTerm?.id||"");
   const [resultType,setResultType]=useState("cat1");
+  useEffect(()=>{if(page==="eclassroom"||page==="dashboard"){try{reload();}catch(e){}}},[page]);
+  useEffect(()=>{if(!selectedTerm&&activeTerm?.id) setSelectedTerm(activeTerm.id);},[activeTerm?.id]);
   const student=students.find(s=>s.id===user.studentId);
   if(!student) return <div style={{padding:40,textAlign:"center",color:"#64748b"}}>{students.length?"Student not found.":<><div style={{fontSize:28,marginBottom:8}}>⏳</div>Loading your records...<div style={{marginTop:14}}><button onClick={()=>(reload?reload():window.location.reload())} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",cursor:"pointer"}}>Tap to retry</button></div></>}</div>;
   const termScores=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===student.id);
@@ -1423,7 +1425,6 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
   const normCls=c=>String(c||"").replace(/\s+/g,"").toLowerCase();
   const myAssignments=assignments.filter(a=>normCls(a.class)===normCls(student.class));
-  useEffect(()=>{if(page==="eclassroom"||page==="dashboard"){try{reload();}catch(e){}}},[page]);
 
   // For Term 3 full result — auto-load Term 1 & Term 2 scores
   const currentTerm=terms.find(t=>t.id===selectedTerm);
