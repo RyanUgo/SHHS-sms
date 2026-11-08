@@ -1417,7 +1417,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const [selectedTerm,setSelectedTerm]=useState(activeTerm?.id||"");
   const [resultType,setResultType]=useState("cat1");
   const student=students.find(s=>s.id===user.studentId);
-  if(!student) return <div style={{padding:40,textAlign:"center"}}>Student not found.</div>;
+  if(!student) return <div style={{padding:40,textAlign:"center",color:"#64748b"}}>{students.length?"Student not found.":<><div style={{fontSize:28,marginBottom:8}}>⏳</div>Loading your records...<div style={{marginTop:14}}><button onClick={()=>(reload?reload():window.location.reload())} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",cursor:"pointer"}}>Tap to retry</button></div></>}</div>;
   const termScores=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===student.id);
   const gpa=calcGPA(termScores);
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
