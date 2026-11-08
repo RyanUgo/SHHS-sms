@@ -58,8 +58,11 @@ const CODING_REMARKS = {1:"Needs Significant Improvement",2:"Below Expectation",
 const JSS_SUBJECTS = ["CRK","CCA","English (Grammar/Speech Work)","English (Literature)","English (Vocabulary)","English (Comprehension/Creative Writing)","Mathematics (Algebra)","Mathematics (Geometry)","Agric Science","ICT","Basic Tech","Basic Science","National Value","History","Home Economics","PHE","Business Studies","French"];
 const SS_SCIENCE_SUBJECTS = ["English Language","Mathematics","Physics","Chemistry","Biology","Further Mathematics","Technical Drawing","Agricultural Science","Computer Science","Economics","Geography","CRK","French","PHE"];
 const SS_ART_SUBJECTS = ["English Language","Mathematics","Literature in English","Government","Economics","CRK","History","Geography","French","Yoruba","Fine Arts","Music","Commerce","Accounting","PHE"];
-const CLASS_SUBJECTS = {JSS1:JSS_SUBJECTS,JSS2:JSS_SUBJECTS,JSS3:JSS_SUBJECTS,"SS1 Science":SS_SCIENCE_SUBJECTS,"SS1 Art":SS_ART_SUBJECTS,"SS2 Science":SS_SCIENCE_SUBJECTS,"SS2 Art":SS_ART_SUBJECTS};
-const ALL_CLASSES = ["JSS1","JSS2","JSS3","SS1 Science","SS1 Art","SS2 Science","SS2 Art"];
+const SS_COMBINED_SUBJECTS = [...new Set([...SS_SCIENCE_SUBJECTS,...SS_ART_SUBJECTS])];
+const CLASS_SUBJECTS = {JSS1:JSS_SUBJECTS,"SS1":SS_COMBINED_SUBJECTS,JSS2:JSS_SUBJECTS,JSS3:JSS_SUBJECTS,"SS1 Science":SS_SCIENCE_SUBJECTS,"SS1 Art":SS_ART_SUBJECTS,"SS2 Science":SS_SCIENCE_SUBJECTS,"SS2 Art":SS_ART_SUBJECTS};
+// SS1 students stay under "SS1" for Term 1 even after being split into Science/Art
+const termClass=(stu,term)=>(term&&term.term===1&&/^SS1 /.test(stu?.class||""))?"SS1":stu?.class;
+const ALL_CLASSES = ["JSS1","JSS2","JSS3","SS1","SS1 Science","SS1 Art","SS2 Science","SS2 Art"];
 const MATH_SUBJECTS = ["Mathematics (Algebra)","Mathematics (Geometry)","Mathematics"];
 const ENGLISH_SUBJECTS = ["English (Grammar/Speech Work)","English (Literature)","English (Vocabulary)","English (Comprehension/Creative Writing)","English Language"];
 
@@ -114,8 +117,8 @@ function InfoRow({label,value}){
   return(<div style={{padding:"7px 0",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",gap:8}}><span style={{fontSize:12,color:"#64748b"}}>{label}</span><span style={{fontSize:13,color:"#1e293b",fontWeight:"500",textAlign:"right"}}>{value||"—"}</span></div>);
 }
 function ClassBadge({cls}){
-  const bg={JSS1:"#dbeafe",JSS2:"#dcfce7",JSS3:"#fef3c7","SS1 Science":"#ede9fe","SS1 Art":"#fce7f3","SS2 Science":"#e0f2fe","SS2 Art":"#fff7ed"};
-  const tx={JSS1:"#1d4ed8",JSS2:"#166534",JSS3:"#92400e","SS1 Science":"#6d28d9","SS1 Art":"#9d174d","SS2 Science":"#0369a1","SS2 Art":"#c2410c"};
+  const bg={JSS1:"#dbeafe",JSS2:"#dcfce7",JSS3:"#fef3c7","SS1":"#e0e7ff","SS1 Science":"#ede9fe","SS1 Art":"#fce7f3","SS2 Science":"#e0f2fe","SS2 Art":"#fff7ed"};
+  const tx={JSS1:"#1d4ed8",JSS2:"#166534",JSS3:"#92400e","SS1":"#3730a3","SS1 Science":"#6d28d9","SS1 Art":"#9d174d","SS2 Science":"#0369a1","SS2 Art":"#c2410c"};
   return(<span style={{background:bg[cls]||"#f1f5f9",color:tx[cls]||"#374151",padding:"2px 8px",borderRadius:20,fontSize:12,fontWeight:"500"}}>{cls}</span>);
 }
 function GradeBadge({grade,small}){
@@ -444,7 +447,7 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
   );
   const allSubjects=getCustomSubjects(selectedClass);
   const subjects=isAdmin?allSubjects:allSubjects.filter(sub=>user.subjects?.includes(sub));
-  const classStudents=students.filter(s=>s.class===selectedClass);
+  const classStudents=students.filter(s=>termClass(s,terms.find(t=>t.id===selectedTerm))===selectedClass);
   const fieldMax={cat1:15,cat2:15,exam:60,ba:10,cat1_ba:2.5,cat2_ba:2.5};
   const sheetFields={cat1:["cat1","cat1_ba"],cat2:["cat2","cat2_ba"],exam:["cat1","cat2","exam","ba"]};
   const fieldLabels={cat1:"CAT 1 /15",cat2:"CAT 2 /15",exam:"Exam /60",ba:"BA /10",cat1_ba:"BA /2.5",cat2_ba:"BA /2.5"};
@@ -711,7 +714,7 @@ function ReportsPage({data}){
   const [selectedTerm,setSelectedTerm]=useState(terms.find(t=>t.active)?.id||"");
   const [selectedClass,setSelectedClass]=useState(""); const [selectedStudent,setSelectedStudent]=useState("");
   const [reportType,setReportType]=useState("exam"); const [report,setReport]=useState(null);
-  const classStudents=students.filter(s=>s.class===selectedClass);
+  const classStudents=students.filter(s=>termClass(s,terms.find(t=>t.id===selectedTerm))===selectedClass);
   const getCustomSubjects=(cls)=>{
     try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}
     catch{return CLASS_SUBJECTS[cls]||[];}
@@ -725,7 +728,7 @@ function ReportsPage({data}){
     const ftUsername=CLASS_FORM_TEACHERS[student.class];
     const formTeacher=staff.find(s=>s.username===ftUsername)||staff.find(s=>s.role==="teacher"&&s.classes?.includes(student.class));
     const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===selectedStudent)||{};
-    const classStudentIds=students.filter(s=>s.class===student.class).map(s=>s.id);
+    const stuCls=termClass(student,term);const classStudentIds=students.filter(s=>termClass(s,term)===stuCls).map(s=>s.id);
     const classGPA=calcClassGPA(scores,classStudentIds,selectedTerm);
     const withPos=termScores.map(sc=>{
       const all=classStudentIds.map(sid=>scores.find(r=>r.term_id===selectedTerm&&r.student_id===sid&&r.subject===sc.subject)?.total||0).sort((a,b)=>b-a);
@@ -819,7 +822,7 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
           <p style={{color:"#c9a84c",margin:"6px 0 0",fontWeight:"bold",fontSize:13}}>{term?.label} — {isCAT1?"CAT 1 Assessment":isCAT2?"CAT 2 Assessment":"Full Term Report"}</p>
         </div>
         <div style={{padding:"14px 26px",borderBottom:"1px solid #e2e8f0",display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,background:"#fafafa"}}>
-          <InfoRow label="Student Name" value={student.name}/><InfoRow label="Admission No." value={student.id}/><InfoRow label="Class" value={student.class}/>
+          <InfoRow label="Student Name" value={student.name}/><InfoRow label="Admission No." value={student.id}/><InfoRow label="Class" value={termClass(student,term)}/>
           <InfoRow label="Date of Birth" value={student.dob||"—"}/><InfoRow label="Days Present" value={att.present||"—"}/><InfoRow label="Days Absent" value={att.present!=null&&att.total?att.total-att.present:"—"}/>
         </div>
         <div style={{overflowX:"auto"}}>
@@ -988,7 +991,7 @@ function AttendancePage({data,toast,reload}){
   const [selectedTerm,setSelectedTerm]=useState(terms.find(t=>t.active)?.id||"");
   const [selectedClass,setSelectedClass]=useState(""); const [totalDays,setTotalDays]=useState(90);
   const [localAtt,setLocalAtt]=useState({}); const [saving,setSaving]=useState(false);
-  const classStudents=students.filter(s=>s.class===selectedClass);
+  const classStudents=students.filter(s=>termClass(s,terms.find(t=>t.id===selectedTerm))===selectedClass);
   useEffect(()=>{
     if(selectedClass&&selectedTerm){const init={};classStudents.forEach(s=>{const a=attendance.find(r=>r.term_id===selectedTerm&&r.student_id===s.id)||{};init[s.id]={present:a.present??"",total:totalDays};});setLocalAtt(init);}
   },[selectedClass,selectedTerm,attendance]);
@@ -1092,7 +1095,7 @@ function PerformancePage({user,data,isAdmin}){
   const [selectedClass,setSelectedClass]=useState("");
   const getClsSubjectsP=(cls)=>{try{const s=localStorage.getItem("shhs_custom_subjects_"+cls);return s?JSON.parse(s):(CLASS_SUBJECTS[cls]||[]);}catch{return CLASS_SUBJECTS[cls]||[];}};
   const allowedClasses=isAdmin?ALL_CLASSES:ALL_CLASSES.filter(cls=>getClsSubjectsP(cls).some(sub=>user.subjects?.includes(sub)));
-  const classStudents=students.filter(s=>s.class===selectedClass);
+  const classStudents=students.filter(s=>termClass(s,terms.find(t=>t.id===selectedTerm))===selectedClass);
 
   const sortedStudents=classStudents.map(s=>{
     const ss=scores.filter(r=>r.term_id===selectedTerm&&r.student_id===s.id);
