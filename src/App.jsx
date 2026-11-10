@@ -69,9 +69,9 @@ const ENGLISH_SUBJECTS = ["English (Grammar/Speech Work)","English (Literature)"
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 // Threshold-based (no gaps for decimal scores like 69.5 or 90.5); GRADE_SCALE is sorted high to low
 const getGradeInfo = s => { const n=Number(s); if(!isFinite(n)) return GRADE_SCALE[GRADE_SCALE.length-1]; return GRADE_SCALE.find(g=>n>=g.min)||GRADE_SCALE[GRADE_SCALE.length-1]; };
-// CAT sheet: score out of 17.5 → GPA out of 5
-const catToGPA = (total175) => {
-  const pct = (total175 / 17.5) * 100;
+// CAT sheet: CAT score out of 15 (BA is shown separately, not added) → grade/GPA out of 5
+const catToGPA = (cat15) => {
+  const pct = ((Number(cat15)||0) / 15) * 100;
   return getGradeInfo(pct);
 };
 // Subject remark based on subject GPA
@@ -87,8 +87,8 @@ const getComment = gpa => COMMENT_DB.find(c=>Number(gpa)>=c.min)||COMMENT_DB[COM
 const calcTotal = (c1,c2,ex,ba) => (Number(c1)||0)+(Number(c2)||0)+(Number(ex)||0)+(Number(ba)||0);
 // GPA of one score row for a sheet type. Returns null when that sheet has not been entered yet.
 const rowGPA = (r,type="exam") => {
-  if(type==="cat1"){ if(!(Number(r.cat1)>0||Number(r.cat1_ba)>0)) return null; return catToGPA((Number(r.cat1)||0)+(Number(r.cat1_ba)||0)).gpa; }
-  if(type==="cat2"){ if(!(Number(r.cat2)>0||Number(r.cat2_ba)>0)) return null; return catToGPA((Number(r.cat2)||0)+(Number(r.cat2_ba)||0)).gpa; }
+  if(type==="cat1"){ if(!(Number(r.cat1)>0)) return null; return catToGPA(r.cat1).gpa; }
+  if(type==="cat2"){ if(!(Number(r.cat2)>0)) return null; return catToGPA(r.cat2).gpa; }
   if(!(Number(r.exam)>0)) return null; // full-term GPA only counts subjects whose exam has been entered
   return getGradeInfo(calcTotal(r.cat1,r.cat2,r.exam,r.ba)).gpa;
 };
@@ -462,7 +462,7 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
   const fieldLabels={cat1:"CAT 1 /15",cat2:"CAT 2 /15",exam:"Exam /60",ba:"BA /10",cat1_ba:"BA /2.5",cat2_ba:"BA /2.5"};
 
   const calcDisplay=(s)=>{
-    const catTotal=sheetType==="cat1"?(Number(s.cat1)||0)+(Number(s.cat1_ba)||0):sheetType==="cat2"?(Number(s.cat2)||0)+(Number(s.cat2_ba)||0):0;
+    const catTotal=sheetType==="cat1"?(Number(s.cat1)||0):sheetType==="cat2"?(Number(s.cat2)||0):0;
     const examTotal=sheetType==="exam"?calcTotal(s.cat1,s.cat2,s.exam,s.ba):0;
     const dt=sheetType==="exam"?examTotal:catTotal;
     const info=sheetType==="exam"?getGradeInfo(examTotal):catToGPA(catTotal);
@@ -505,9 +505,9 @@ function ScoresPage({user,data,activeTerm,toast,isAdmin,reload}){
   const saveScoreRow=async(studentId,subjectName,s)=>{
     const total=calcTotal(s.cat1,s.cat2,s.exam,s.ba);
     const info=getGradeInfo(total);
-    const cat1Total=Number(s.cat1||0)+Number(s.cat1_ba||0);
+    const cat1Total=Number(s.cat1||0);
     const cat1Info=catToGPA(cat1Total);
-    const cat2Total=Number(s.cat2||0)+Number(s.cat2_ba||0);
+    const cat2Total=Number(s.cat2||0);
     const cat2Info=catToGPA(cat2Total);
     await db.upsert("scores",{
       term_id:selectedTerm,student_id:studentId,subject:subjectName,
@@ -729,7 +729,7 @@ function buildReport(data,selectedStudent,selectedTerm,reportType){
     const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===selectedStudent)||{};
     const stuCls=termClass(student,term);const classStudentIds=students.filter(s=>termClass(s,term)===stuCls).map(s=>s.id);
     const classGPA=calcClassGPA(scores,classStudentIds,selectedTerm,reportType);
-    const metric=(r)=>reportType==="cat1"?(Number(r.cat1)||0)+(Number(r.cat1_ba)||0):reportType==="cat2"?(Number(r.cat2)||0)+(Number(r.cat2_ba)||0):(Number(r.total)||0);
+    const metric=(r)=>reportType==="cat1"?(Number(r.cat1)||0):reportType==="cat2"?(Number(r.cat2)||0):(Number(r.total)||0);
     // CAT sheets only list subjects whose CAT has been entered; position is ranked on that sheet's own score
     const shown=reportType==="exam"?termScores:termScores.filter(r=>rowGPA(r,reportType)!==null);
     const withPos=shown.map(sc=>{
@@ -882,7 +882,7 @@ function ReportCard({student,term,scores,gpa,classGPA,comment,formTeacher,att,pr
                 {(isCAT1||isCAT2)&&(()=>{
                   const catRawScore=isCAT1?(Number(s.cat1)||0):(Number(s.cat2)||0);
                   const catBAScore=isCAT1?(Number(s.cat1_ba)||0):(Number(s.cat2_ba)||0);
-                  const catTotalScore=catRawScore+catBAScore;
+                  const catTotalScore=catRawScore;
                   const catGPAInfo=catToGPA(catTotalScore);
                   return(<>
                     {td(<span style={{fontWeight:"bold",color:gradeColor(catGPAInfo.grade)}}>{catRawScore}</span>)}
@@ -1444,7 +1444,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   // Latest sheet entered for one subject: full term > CAT 2 > CAT 1, graded on the right scale
   const latestSheet=(r)=>{
     if(rowGPA(r,"exam")!==null){const g=getGradeInfo(calcTotal(r.cat1,r.cat2,r.exam,r.ba));return{label:"",score:calcTotal(r.cat1,r.cat2,r.exam,r.ba)+"/100",grade:g.grade};}
-    for(const ty of ["cat2","cat1"]){if(rowGPA(r,ty)!==null){const raw=Number(r[ty])||0,ba=Number(r[ty+"_ba"])||0;return{label:ty==="cat2"?"CAT 2 ":"CAT 1 ",score:(raw+ba)+"/17.5",grade:catToGPA(raw+ba).grade};}}
+    for(const ty of ["cat2","cat1"]){if(rowGPA(r,ty)!==null){const raw=Number(r[ty])||0;return{label:ty==="cat2"?"CAT 2 ":"CAT 1 ",score:raw+"/15",grade:catToGPA(raw).grade};}}
     return{label:"",score:"—",grade:"F"};
   };
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
