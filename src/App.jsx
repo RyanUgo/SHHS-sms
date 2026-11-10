@@ -67,7 +67,8 @@ const MATH_SUBJECTS = ["Mathematics (Algebra)","Mathematics (Geometry)","Mathema
 const ENGLISH_SUBJECTS = ["English (Grammar/Speech Work)","English (Literature)","English (Vocabulary)","English (Comprehension/Creative Writing)","English Language"];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const getGradeInfo = s => GRADE_SCALE.find(g=>s>=g.min&&s<=g.max)||GRADE_SCALE[GRADE_SCALE.length-1];
+// Threshold-based (no gaps for decimal scores like 69.5 or 90.5); GRADE_SCALE is sorted high to low
+const getGradeInfo = s => { const n=Number(s); if(!isFinite(n)) return GRADE_SCALE[GRADE_SCALE.length-1]; return GRADE_SCALE.find(g=>n>=g.min)||GRADE_SCALE[GRADE_SCALE.length-1]; };
 // CAT sheet: score out of 17.5 → GPA out of 5
 const catToGPA = (total175) => {
   const pct = (total175 / 17.5) * 100;
@@ -82,11 +83,19 @@ const subjectRemark = (gpa) => {
   if(gpa>=1.0) return "Below average. Significant improvement required.";
   return "Poor performance. Urgent improvement needed.";
 };
-const getComment = gpa => COMMENT_DB.find(c=>gpa>=c.min&&gpa<=c.max)||COMMENT_DB[COMMENT_DB.length-1];
+const getComment = gpa => COMMENT_DB.find(c=>Number(gpa)>=c.min)||COMMENT_DB[COMMENT_DB.length-1];
 const calcTotal = (c1,c2,ex,ba) => (Number(c1)||0)+(Number(c2)||0)+(Number(ex)||0)+(Number(ba)||0);
-const calcGPA = rows => rows.length?(rows.reduce((s,r)=>s+getGradeInfo(r.total).gpa,0)/rows.length).toFixed(2):"0.00";
-const calcClassGPA = (scores,studentIds,termId) => {
-  const gpas = studentIds.map(sid=>{ const ss=scores.filter(r=>r.term_id===termId&&r.student_id===sid); return ss.length?Number(calcGPA(ss)):null; }).filter(g=>g!==null);
+// GPA of one score row for a sheet type. Returns null when that sheet has not been entered yet.
+const rowGPA = (r,type="exam") => {
+  if(type==="cat1"){ if(!(Number(r.cat1)>0||Number(r.cat1_ba)>0)) return null; return catToGPA((Number(r.cat1)||0)+(Number(r.cat1_ba)||0)).gpa; }
+  if(type==="cat2"){ if(!(Number(r.cat2)>0||Number(r.cat2_ba)>0)) return null; return catToGPA((Number(r.cat2)||0)+(Number(r.cat2_ba)||0)).gpa; }
+  if(!(Number(r.exam)>0)) return null; // full-term GPA only counts subjects whose exam has been entered
+  return getGradeInfo(calcTotal(r.cat1,r.cat2,r.exam,r.ba)).gpa;
+};
+const gpaNum = (rows,type="exam") => { const g=rows.map(r=>rowGPA(r,type)).filter(x=>x!==null); return g.length?g.reduce((a,b)=>a+b,0)/g.length:null; };
+const calcGPA = (rows,type="exam") => { const g=gpaNum(rows,type); return g===null?"0.00":g.toFixed(2); };
+const calcClassGPA = (scores,studentIds,termId,type="exam") => {
+  const gpas = studentIds.map(sid=>gpaNum(scores.filter(r=>r.term_id===termId&&r.student_id===sid),type)).filter(g=>g!==null);
   return gpas.length?(gpas.reduce((a,b)=>a+b,0)/gpas.length).toFixed(2):"—";
 };
 const gradeColor = g => ({["A+"]:"#059669",A:"#10b981",B:"#3b82f6",C:"#6366f1",D:"#f59e0b",E:"#f97316",F:"#ef4444"}[g]||"#64748b");
@@ -714,16 +723,20 @@ function buildReport(data,selectedStudent,selectedTerm,reportType){
     const student=students.find(s=>s.id===selectedStudent); if(!student) return null;
     const term=terms.find(t=>t.id===selectedTerm);
     const termScores=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===selectedStudent);
-    const gpa=calcGPA(termScores); const comment=getComment(Number(gpa));
+    const gpa=calcGPA(termScores,reportType); const gpaExam=calcGPA(termScores,"exam"); const comment=getComment(Number(gpa));
     const ftUsername=CLASS_FORM_TEACHERS[student.class];
     const formTeacher=staff.find(s=>s.username===ftUsername)||staff.find(s=>s.role==="teacher"&&s.classes?.includes(student.class));
     const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===selectedStudent)||{};
     const stuCls=termClass(student,term);const classStudentIds=students.filter(s=>termClass(s,term)===stuCls).map(s=>s.id);
-    const classGPA=calcClassGPA(scores,classStudentIds,selectedTerm);
-    const withPos=termScores.map(sc=>{
-      const all=classStudentIds.map(sid=>scores.find(r=>r.term_id===selectedTerm&&r.student_id===sid&&r.subject===sc.subject)?.total||0).sort((a,b)=>b-a);
-      const classAvg=all.length?all.reduce((a,b)=>a+b,0)/all.length:0;
-      return{...sc,position:all.indexOf(sc.total)+1,classAvg:classAvg.toFixed(1)};
+    const classGPA=calcClassGPA(scores,classStudentIds,selectedTerm,reportType);
+    const metric=(r)=>reportType==="cat1"?(Number(r.cat1)||0)+(Number(r.cat1_ba)||0):reportType==="cat2"?(Number(r.cat2)||0)+(Number(r.cat2_ba)||0):(Number(r.total)||0);
+    // CAT sheets only list subjects whose CAT has been entered; position is ranked on that sheet's own score
+    const shown=reportType==="exam"?termScores:termScores.filter(r=>rowGPA(r,reportType)!==null);
+    const withPos=shown.map(sc=>{
+      const peers=classStudentIds.map(sid=>scores.find(r=>r.term_id===selectedTerm&&r.student_id===sid&&r.subject===sc.subject)).filter(r=>r&&(reportType==="exam"||rowGPA(r,reportType)!==null)).map(metric);
+      const mine=metric(sc);
+      const classAvg=peers.length?peers.reduce((a,b)=>a+b,0)/peers.length:0;
+      return{...sc,position:peers.filter(v=>v>mine).length+1,classAvg:classAvg.toFixed(1)};
     });
     const codingScore=codingScores.find(c=>c.term_id===selectedTerm&&c.student_id===selectedStudent);
     let prevTermScores={};
@@ -735,11 +748,11 @@ function buildReport(data,selectedStudent,selectedTerm,reportType){
     }
     let promotionStatus=null;
     if(term?.term===3){
-      const gpaNum=Number(gpa);
+      const gpaN=Number(gpaExam);
       const sessionTerms=terms.filter(t=>t.session===term.session).sort((a,b)=>a.term-b.term);
       const avgSub=(subList)=>{let total=0,cnt=0;sessionTerms.forEach(t=>subList.forEach(sub=>{const r=scores.find(x=>x.term_id===t.id&&x.student_id===selectedStudent&&x.subject===sub);if(r){total+=r.total;cnt++;}}));return cnt>0?total/cnt:null;};
       const avgM=avgSub(MATH_SUBJECTS); const avgE=avgSub(ENGLISH_SUBJECTS);
-      if(gpaNum>=2.5){promotionStatus=(avgM!==null&&avgM<40&&avgE!==null&&avgE<40)?"TRIAL":"PROMOTED";}
+      if(gpaN>=2.5){promotionStatus=(avgM!==null&&avgM<40&&avgE!==null&&avgE<40)?"TRIAL":"PROMOTED";}
       else{promotionStatus="NOT_PROMOTED";}
     }
     return {student,term,scores:withPos,gpa,classGPA,comment,formTeacher,att,promotionStatus,codingScore,prevTermScores,reportType,staff};
@@ -1424,7 +1437,16 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const student=students.find(s=>s.id===user.studentId);
   if(!student) return <div style={{padding:40,textAlign:"center",color:"#64748b"}}>{students.length?"Student not found.":<><div style={{fontSize:28,marginBottom:8}}>⏳</div>Loading your records...<div style={{marginTop:14}}><button onClick={()=>(reload?reload():window.location.reload())} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",cursor:"pointer"}}>Tap to retry</button></div></>}</div>;
   const termScores=scores.filter(s=>s.term_id===selectedTerm&&s.student_id===student.id);
-  const gpa=calcGPA(termScores);
+  // Term GPA on the dashboard: use the full-term GPA once exams are in, otherwise the latest CAT sheet entered
+  const gpaSheet=["exam","cat2","cat1"].find(ty=>gpaNum(termScores,ty)!==null);
+  const gpa=gpaSheet?calcGPA(termScores,gpaSheet):"0.00";
+  const gpaLabel=gpaSheet==="exam"?"Term GPA":gpaSheet==="cat2"?"Term GPA (CAT 2)":gpaSheet==="cat1"?"Term GPA (CAT 1)":"Term GPA";
+  // Latest sheet entered for one subject: full term > CAT 2 > CAT 1, graded on the right scale
+  const latestSheet=(r)=>{
+    if(rowGPA(r,"exam")!==null){const g=getGradeInfo(calcTotal(r.cat1,r.cat2,r.exam,r.ba));return{label:"",score:calcTotal(r.cat1,r.cat2,r.exam,r.ba)+"/100",grade:g.grade};}
+    for(const ty of ["cat2","cat1"]){if(rowGPA(r,ty)!==null){const raw=Number(r[ty])||0,ba=Number(r[ty+"_ba"])||0;return{label:ty==="cat2"?"CAT 2 ":"CAT 1 ",score:(raw+ba)+"/17.5",grade:catToGPA(raw+ba).grade};}}
+    return{label:"",score:"—",grade:"F"};
+  };
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
   const normCls=c=>String(c||"").replace(/\s+/g,"").toLowerCase();
   const myAssignments=assignments.filter(a=>normCls(a.class)===normCls(student.class));
@@ -1450,7 +1472,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
         <div>
           <div style={{marginBottom:16}}><h3 style={{margin:0}}>Welcome, {student.name.split(" ")[0]}! 👋</h3><p style={{color:"#64748b",margin:"3px 0 0",fontSize:14}}>{student.class} · {activeTerm?.label}</p></div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:16}}>
-            <StatCard label="Term GPA" value={termScores.length?gpa:"—"} icon="📊" color="#6366f1"/>
+            <StatCard label={gpaLabel} value={gpaSheet?gpa:"—"} icon="📊" color="#6366f1"/>
             <StatCard label="Subjects" value={termScores.length} icon="📖" color="#3b82f6"/>
             <StatCard label="Days Present" value={att.present??"—"} icon="✅" color="#10b981"/>
             <StatCard label="Assignments" value={myAssignments.length} icon="📚" color="#f59e0b"/>
@@ -1461,10 +1483,10 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
               {!myAssignments.length&&<p style={{color:"#94a3b8",fontSize:13}}>No assignments yet.</p>}
             </Card>
             <Card><h4 style={{margin:"0 0 10px"}}>My Performance</h4>
-              {termScores.slice(0,5).map(s=>(<div key={s.subject} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f1f5f9"}}>
+              {termScores.slice(0,5).map(s=>{const ls=latestSheet(s);return(<div key={s.subject} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f1f5f9"}}>
                 <span style={{fontSize:13}}>{s.subject}</span>
-                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:13,fontWeight:"bold",color:gradeColor(s.grade)}}>{s.total}</span><GradeBadge grade={s.grade} small/></div>
-              </div>))}
+                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"#64748b"}}>{ls.label}</span><span style={{fontSize:13,fontWeight:"bold",color:gradeColor(ls.grade)}}>{ls.score}</span><GradeBadge grade={ls.grade} small/></div>
+              </div>);})}
               {!termScores.length&&<p style={{color:"#94a3b8",fontSize:13}}>No results yet.</p>}
             </Card>
           </div>
@@ -1494,7 +1516,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10}}>
             {getStudentSubjects(student.class).map(sub=>{const sc=termScores.find(s=>s.subject===sub);return(<Card key={sub} style={{textAlign:"center"}}>
               <div style={{fontSize:13,fontWeight:"bold",color:"#1e293b",marginBottom:8}}>{sub}</div>
-              {sc?<><div style={{fontSize:26,fontWeight:"bold",color:gradeColor(sc.grade)}}>{sc.total}</div><GradeBadge grade={sc.grade}/><div style={{fontSize:12,color:"#64748b",marginTop:4}}>{sc.remark}</div></>
+              {sc&&latestSheet(sc).score!=="—"?(()=>{const ls=latestSheet(sc);const gi=getGradeInfo(0);const g=GRADE_SCALE.find(x=>x.grade===ls.grade)||gi;return <><div style={{fontSize:11,color:"#64748b"}}>{ls.label||"Full Term "}</div><div style={{fontSize:26,fontWeight:"bold",color:gradeColor(ls.grade)}}>{ls.score}</div><GradeBadge grade={ls.grade}/><div style={{fontSize:12,color:"#64748b",marginTop:4}}>{g.remark}</div></>;})()
               :<div style={{fontSize:13,color:"#94a3b8"}}>No score yet</div>}
             </Card>);})}
           </div>
@@ -1515,7 +1537,8 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
           </div>
           {(()=>{
             const rt=resultType==="full"?"exam":resultType;
-            const rep=termScores.length?buildReport(data,student.id,selectedTerm,rt):null;
+            const rep0=termScores.length?buildReport(data,student.id,selectedTerm,rt):null;
+            const rep=rep0&&rep0.scores.length?rep0:null;
             return rep?<ReportCard {...rep}/>:<Card style={{textAlign:"center",padding:40,border:"1px dashed #e2e8f0"}}><div style={{fontSize:32,marginBottom:8}}>📭</div><p style={{color:"#94a3b8"}}>No results yet for this term.</p></Card>;
           })()}
         </div>
