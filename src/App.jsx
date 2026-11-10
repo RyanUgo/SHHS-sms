@@ -1443,9 +1443,9 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
   const gpaLabel=gpaSheet==="exam"?"Term GPA":gpaSheet==="cat2"?"Term GPA (CAT 2)":gpaSheet==="cat1"?"Term GPA (CAT 1)":"Term GPA";
   // Latest sheet entered for one subject: full term > CAT 2 > CAT 1, graded on the right scale
   const latestSheet=(r)=>{
-    if(rowGPA(r,"exam")!==null){const g=getGradeInfo(calcTotal(r.cat1,r.cat2,r.exam,r.ba));return{label:"",score:calcTotal(r.cat1,r.cat2,r.exam,r.ba)+"/100",grade:g.grade};}
-    for(const ty of ["cat2","cat1"]){if(rowGPA(r,ty)!==null){const raw=Number(r[ty])||0;return{label:ty==="cat2"?"CAT 2 ":"CAT 1 ",score:raw+"/15",grade:catToGPA(raw).grade};}}
-    return{label:"",score:"—",grade:"F"};
+    if(rowGPA(r,"exam")!==null){const g=getGradeInfo(calcTotal(r.cat1,r.cat2,r.exam,r.ba));return{label:"",score:calcTotal(r.cat1,r.cat2,r.exam,r.ba)+"/100",grade:g.grade,gpa:g.gpa};}
+    for(const ty of ["cat2","cat1"]){if(rowGPA(r,ty)!==null){const raw=Number(r[ty])||0;return{label:ty==="cat2"?"CAT 2 ":"CAT 1 ",score:raw+"/15",grade:catToGPA(raw).grade,gpa:catToGPA(raw).gpa};}}
+    return{label:"",score:"—",grade:"F",gpa:0};
   };
   const att=attendance.find(a=>a.term_id===selectedTerm&&a.student_id===student.id)||{};
   const normCls=c=>String(c||"").replace(/\s+/g,"").toLowerCase();
@@ -1485,7 +1485,7 @@ function StudentPortal({user,data,activeTerm,onLogout,toast,notify,reload}){
             <Card><h4 style={{margin:"0 0 10px"}}>My Performance</h4>
               {termScores.slice(0,5).map(s=>{const ls=latestSheet(s);return(<div key={s.subject} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f1f5f9"}}>
                 <span style={{fontSize:13}}>{s.subject}</span>
-                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"#64748b"}}>{ls.label}</span><span style={{fontSize:13,fontWeight:"bold",color:gradeColor(ls.grade)}}>{ls.score}</span><GradeBadge grade={ls.grade} small/></div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:12,color:"#64748b"}}>{ls.label}</span><span style={{fontSize:13,fontWeight:"bold",color:gradeColor(ls.grade)}}>GPA {Number(ls.gpa).toFixed(1)}</span><GradeBadge grade={ls.grade} small/></div>
               </div>);})}
               {!termScores.length&&<p style={{color:"#94a3b8",fontSize:13}}>No results yet.</p>}
             </Card>
